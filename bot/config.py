@@ -9,6 +9,8 @@ class Plan:
     price: float
     days: int
     traffic_gb: int = 0
+    base_devices: int = 3
+    extra_device_price: float = 50.0
 
 
 @dataclass

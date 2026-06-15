@@ -25,12 +25,27 @@ def plans_keyboard(plans: list, prefix: str = "plan") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for i, plan in enumerate(plans):
         builder.button(
-            text=f"{plan.name} | {plan.price} руб",
+            text=f"{plan.days} дней | Безлимит ♾ | {plan.price} руб",
             callback_data=f"{prefix}:{i}",
         )
     builder.button(text="◀ Назад", callback_data="menu")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str = "buy") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for i in range(1, 11):
+        mark = " ✅" if i == current else ""
+        builder.button(text=f"{i}{mark}", callback_data=f"{prefix}:{i}")
+    builder.adjust(5)
+    builder.button(text="◀ Назад", callback_data=back_cb)
+    builder.adjust(5, 1)
+    return builder.as_markup()
+
+
+def edit_device_keyboard(sub_id: int, current: int = 3) -> InlineKeyboardMarkup:
+    return device_count_keyboard(current, f"devedit:{sub_id}", "my_subs")
 
 
 def payment_methods_keyboard(has_yookassa: bool, has_crypto: bool) -> InlineKeyboardMarkup:

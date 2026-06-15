@@ -59,6 +59,11 @@ class Database:
             await self.conn.commit()
         except Exception:
             pass
+        try:
+            await self.conn.execute("ALTER TABLE subscriptions ADD COLUMN device_count INTEGER DEFAULT 3")
+            await self.conn.commit()
+        except Exception:
+            pass
 
     async def get_user(self, telegram_id: int) -> Optional[dict]:
         cursor = await self.conn.execute(
@@ -84,14 +89,15 @@ class Database:
         inbound_id: int,
         days: int,
         traffic_gb: int,
+        device_count: int = 3,
     ) -> dict:
         expired_at = datetime.now() + timedelta(days=days)
         total_bytes = traffic_gb * 1024**3 if traffic_gb > 0 else 0
         cursor = await self.conn.execute(
             """INSERT INTO subscriptions
-               (user_id, plan_name, uuid, inbound_id, traffic_total, expired_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (user_id, plan_name, uuid_str, inbound_id, total_bytes, expired_at),
+               (user_id, plan_name, uuid, inbound_id, traffic_total, expired_at, device_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, plan_name, uuid_str, inbound_id, total_bytes, expired_at, device_count),
         )
         await self.conn.commit()
         return await self.get_subscription(cursor.lastrowid)
@@ -155,6 +161,13 @@ class Database:
         await self.conn.execute(
             "UPDATE subscriptions SET expired_at = ? WHERE id = ?",
             (expired_at, sub_id),
+        )
+        await self.conn.commit()
+
+    async def update_sub_device_count(self, sub_id: int, device_count: int):
+        await self.conn.execute(
+            "UPDATE subscriptions SET device_count = ? WHERE id = ?",
+            (device_count, sub_id),
         )
         await self.conn.commit()
 

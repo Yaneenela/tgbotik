@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -12,29 +13,35 @@ from bot.config import Config, Plan
 from bot.db import Database
 from bot.xui import XUIManager
 from bot.payments import YooKassa, CryptoBot
-from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard
+from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard, device_count_keyboard, edit_device_keyboard
 
 logger = logging.getLogger(__name__)
 
 
+def calc_total_price(plan: Plan, device_count: int) -> float:
+    return plan.price + max(0, device_count - plan.base_devices) * plan.extra_device_price
+
+
 async def _process_payment(
     cfg: Config, db: Database, xui: XUIManager, bot: Bot,
-    tg_id: int, plan: Plan, payment_id: str,
+    tg_id: int, plan: Plan, payment_id: str, device_count: int = 3,
 ):
     user = await db.get_user(tg_id)
     if not user:
         return
 
     existing = await db.get_active_sub_by_user_and_plan(user["id"], plan.name)
+    total_price = calc_total_price(plan, device_count)
 
     if existing:
         try:
-            await xui.update_client_expiry(existing["uuid"], f"tg_{tg_id}", plan.days)
+            await xui.update_client_expiry(existing["uuid"], f"tg_{tg_id}", plan.days, device_count)
         except Exception as e:
             logger.error(f"3x-UI extend error: {e}")
             await bot.send_message(tg_id, f"Ошибка продления: {e}")
             return
         await db.extend_expiry(existing["id"], plan.days)
+        await db.update_sub_device_count(existing["id"], device_count)
         client_uuid = existing["uuid"]
         is_renewal = True
     else:
@@ -44,6 +51,7 @@ async def _process_payment(
                 email=f"tg_{tg_id}",
                 days=plan.days,
                 traffic_gb=plan.traffic_gb,
+                device_count=device_count,
             )
         except Exception as e:
             logger.error(f"3x-UI create client error: {e}")
@@ -56,6 +64,7 @@ async def _process_payment(
             inbound_id=cfg.xui_inbound_ids[0],
             days=plan.days,
             traffic_gb=plan.traffic_gb,
+            device_count=device_count,
         )
         is_renewal = False
 
@@ -63,7 +72,9 @@ async def _process_payment(
     if is_renewal:
         msg = (
             f"✅ Подписка продлена!\n\n"
-            f"💡 Тариф: {plan.name}\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"📱 Устройств: {device_count}\n"
+            f"💵 Сумма: {total_price} руб\n"
             f"📅 Срок: +{plan.days} дней\n\n"
             f"🔗 Ссылка на подписку:\n"
             f"<code>{sub_url}</code>"
@@ -71,7 +82,9 @@ async def _process_payment(
     else:
         msg = (
             f"✅ Подписка активирована!\n\n"
-            f"💡 Тариф: {plan.name}\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"📱 Устройств: {device_count}\n"
+            f"💵 Сумма: {total_price} руб\n"
             f"📅 Срок: {plan.days} дней\n\n"
             f"🔗 Ссылка на подписку:\n"
             f"<code>{sub_url}</code>\n\n"
@@ -89,7 +102,8 @@ async def _process_payment(
                 admin_id,
                 f"🔔 {label}!\n"
                 f"👤 {user['username'] or tg_id}\n"
-                f"💡 {plan.name} | {plan.price} руб\n"
+                f"💡 {plan.days} дней | Безлимит ♾ | {total_price} руб\n"
+                f"📱 Устройств: {device_count}\n"
                 f"🔗 {sub_url}",
                 disable_notification=True,
             )
@@ -298,9 +312,35 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await state.update_data(plan_index=idx)
 
         text = (
-            f"💡 Тариф: {plan.name}\n"
-            f"💵 Цена: {plan.price} руб\n"
-            f"📅 Срок: {plan.days} дней\n\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
+            f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
+            f"Выберите количество устройств:"
+        )
+        await callback.message.edit_text(
+            text,
+            reply_markup=device_count_keyboard(),
+        )
+
+    @router.callback_query(F.data.startswith("device:"))
+    async def cb_select_device(callback: CallbackQuery, state: FSMContext):
+        device_count = int(callback.data.split(":")[1])
+        data = await state.get_data()
+        idx = data.get("plan_index")
+        if idx is None:
+            await callback.message.edit_text(
+                "Ошибка: выберите тариф заново.",
+                reply_markup=back_button(),
+            )
+            return
+        plan = cfg.plans[idx]
+        total = calc_total_price(plan, device_count)
+        await state.update_data(device_count=device_count, total_price=total)
+
+        text = (
+            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"📱 Устройств: {device_count}\n"
+            f"💵 Сумма: {total} руб\n\n"
             f"Выберите способ оплаты:"
         )
         await callback.message.edit_text(
@@ -312,6 +352,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_pay_yookassa(callback: CallbackQuery, state: FSMContext, bot: Bot):
         data = await state.get_data()
         idx = data.get("plan_index")
+        device_count = data.get("device_count", 3)
         if idx is None:
             await callback.message.edit_text(
                 "Ошибка: выберите тариф заново.",
@@ -319,6 +360,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             )
             return
         plan = cfg.plans[idx]
+        total_price = calc_total_price(plan, device_count)
         tg_id = callback.from_user.id
 
         if not yoo:
@@ -332,8 +374,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         bot_username = cfg.bot_username or "bot"
         payment = await yoo.create_payment(
-            amount=plan.price,
-            description=plan.name,
+            amount=total_price,
+            description=f"{plan.name} ({device_count} уст.)",
             return_url=f"https://t.me/{bot_username}",
         )
 
@@ -347,7 +389,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         user = await db.get_user(tg_id)
         await db.add_transaction(
             user_id=user["id"],
-            amount=plan.price,
+            amount=total_price,
             currency=cfg.currency,
             payment_system="yookassa",
             payment_id=payment.payment_id,
@@ -357,8 +399,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await state.update_data(payment_id=payment.payment_id, plan_index=idx, payment_method="yookassa")
         await callback.message.edit_text(
             f"💳 Счёт создан!\n\n"
-            f"Сумма: {plan.price} руб\n"
-            f"За: {plan.name}\n\n"
+            f"Сумма: {total_price} руб\n"
+            f"За: {plan.name} ({device_count} уст.)\n\n"
             f"Нажмите кнопку ниже для оплаты:",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -373,6 +415,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_pay_crypto(callback: CallbackQuery, state: FSMContext, bot: Bot):
         data = await state.get_data()
         idx = data.get("plan_index")
+        device_count = data.get("device_count", 3)
         if idx is None:
             await callback.message.edit_text(
                 "Ошибка: выберите тариф заново.",
@@ -380,6 +423,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             )
             return
         plan = cfg.plans[idx]
+        total_price = calc_total_price(plan, device_count)
         tg_id = callback.from_user.id
 
         if not crypto:
@@ -392,8 +436,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await callback.message.edit_text("⏳ Создаём счёт...")
 
         invoice = await crypto.create_invoice(
-            amount=plan.price,
-            description=f"{plan.name} | @{callback.from_user.username or tg_id}",
+            amount=total_price,
+            description=f"{plan.name} ({device_count} уст.) | @{callback.from_user.username or tg_id}",
         )
 
         if not invoice:
@@ -406,7 +450,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         user = await db.get_user(tg_id)
         await db.add_transaction(
             user_id=user["id"],
-            amount=plan.price,
+            amount=total_price,
             currency=cfg.currency,
             payment_system="cryptobot",
             payment_id=str(invoice.invoice_id),
@@ -416,8 +460,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await state.update_data(payment_id=str(invoice.invoice_id), plan_index=idx, payment_method="crypto")
         await callback.message.edit_text(
             f"💱 Счёт создан!\n\n"
-            f"Сумма: {plan.price} руб\n"
-            f"За: {plan.name}\n\n"
+            f"Сумма: {total_price} руб\n"
+            f"За: {plan.name} ({device_count} уст.)\n\n"
             f"Нажмите кнопку ниже для оплаты:",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -446,6 +490,9 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             if invoice and invoice.status == "paid":
                 paid = True
 
+        data = await state.get_data()
+        device_count = data.get("device_count", 3)
+
         if paid:
             await db.conn.execute(
                 "UPDATE transactions SET status = 'processing' WHERE payment_id = ? AND status = 'pending'",
@@ -457,7 +504,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             if rowcount == 0:
                 await callback.answer("Платеж уже обрабатывается", show_alert=True)
                 return
-            await _process_payment(cfg, db, xui, bot, tg_id, plan, pay_id)
+            await _process_payment(cfg, db, xui, bot, tg_id, plan, pay_id, device_count)
             await db.update_transaction(pay_id, "completed")
             await callback.message.edit_text(
                 f"✅ Оплата подтверждена!\n\n"
@@ -476,14 +523,16 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         parts = callback.data.split(":")
         _, sub_id, plan_idx = parts
         plan = cfg.plans[int(plan_idx)]
+        sub = await db.get_subscription(int(sub_id))
+        current_devices = sub["device_count"] if sub else 3
         await state.update_data(plan_index=int(plan_idx))
         text = (
-            f"💡 Тариф: {plan.name}\n"
-            f"💵 Цена: {plan.price} руб\n"
-            f"📅 Срок: {plan.days} дней\n\n"
-            f"Выберите способ оплаты:"
+            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
+            f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
+            f"Выберите количество устройств:"
         )
-        await callback.message.edit_text(text, reply_markup=payment_methods_keyboard(bool(yoo), bool(crypto)))
+        await callback.message.edit_text(text, reply_markup=device_count_keyboard(current_devices))
 
     @router.callback_query(F.data == "my_subs")
     async def cb_my_subs(callback: CallbackQuery):
@@ -506,12 +555,77 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             expired = datetime.fromisoformat(s["expired_at"]) if s.get("expired_at") else None
             expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "бессрочно"
             sub_url = cfg.make_sub_url(s["uuid"])
+            devices = s.get("device_count", 3)
             text_parts.append(
                 f"\n▶ {s['plan_name']}\n"
                 f"📅 До: {expired_str}\n"
+                f"📱 Устройств: {devices}\n"
                 f"🔗 <code>{sub_url}</code>\n"
             )
-        await callback.message.edit_text("\n".join(text_parts), reply_markup=back_button())
+        builder = InlineKeyboardBuilder()
+        builder.button(text="📱 Изменить устройства", callback_data="edit_devices")
+        builder.button(text="◀ Назад", callback_data="menu")
+        builder.adjust(1)
+        await callback.message.edit_text("\n".join(text_parts), reply_markup=builder.as_markup())
+
+    @router.callback_query(F.data == "edit_devices")
+    async def cb_edit_devices(callback: CallbackQuery):
+        tg_id = callback.from_user.id
+        user = await db.get_user(tg_id)
+        if not user:
+            await callback.message.edit_text("Сначала напишите /start", reply_markup=back_button())
+            return
+        subs = await db.get_user_subscriptions(user["id"])
+        if not subs:
+            await callback.message.edit_text("Нет активных подписок.", reply_markup=back_button())
+            return
+        builder = InlineKeyboardBuilder()
+        for s in subs:
+            label = f"{s['plan_name']} — {s.get('device_count', 3)} шт"
+            builder.button(text=label, callback_data=f"edit_dev_sub:{s['id']}")
+        builder.button(text="◀ Назад", callback_data="my_subs")
+        builder.adjust(1)
+        await callback.message.edit_text("📱 Выберите подписку для изменения:", reply_markup=builder.as_markup())
+
+    @router.callback_query(F.data.startswith("edit_dev_sub:"))
+    async def cb_edit_dev_sub(callback: CallbackQuery):
+        sub_id = int(callback.data.split(":")[1])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
+            return
+        current = sub.get("device_count", 3)
+        await callback.message.edit_text(
+            f"💡 {sub['plan_name']}\n"
+            f"📱 Текущее количество устройств: {current}\n\n"
+            f"Выберите новое количество:",
+            reply_markup=edit_device_keyboard(sub_id, current),
+        )
+
+    @router.callback_query(F.data.startswith("devedit:"))
+    async def cb_confirm_dev_edit(callback: CallbackQuery, bot: Bot):
+        parts = callback.data.split(":")
+        sub_id = int(parts[1])
+        new_count = int(parts[2])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
+            return
+        await db.update_sub_device_count(sub_id, new_count)
+        try:
+            remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - datetime.now()).days) if sub.get("expired_at") else 0
+            await xui.update_client_expiry(sub["uuid"], f"tg_{callback.from_user.id}", remaining_days, new_count)
+        except Exception as e:
+            logger.error(f"3x-UI device count update error: {e}")
+            await callback.message.edit_text(
+                f"Ошибка обновления в панели: {e}",
+                reply_markup=back_button(),
+            )
+            return
+        await callback.message.edit_text(
+            f"✅ Количество устройств изменено на {new_count}.",
+            reply_markup=back_button(),
+        )
 
     @router.callback_query(F.data == "admin")
     async def cb_admin(callback: CallbackQuery):
@@ -609,18 +723,46 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         )
 
     @router.callback_query(F.data.startswith("grant_plan:"))
-    async def cb_admin_grant_plan(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    async def cb_admin_grant_plan(callback: CallbackQuery, state: FSMContext):
         if callback.from_user.id not in cfg.admin_ids:
             return
         idx = int(callback.data.split(":")[1])
         plan = cfg.plans[idx]
+        await state.update_data(grant_plan_index=idx)
+        text = (
+            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
+            f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
+            f"Выберите количество устройств:"
+        )
+        await callback.message.edit_text(
+            text,
+            reply_markup=device_count_keyboard(),
+        )
+
+    @router.callback_query(F.data.startswith("grant_device:"))
+    async def cb_admin_grant_device(callback: CallbackQuery, state: FSMContext, bot: Bot):
+        if callback.from_user.id not in cfg.admin_ids:
+            return
+        device_count = int(callback.data.split(":")[1])
         data = await state.get_data()
+        idx = data.get("grant_plan_index")
+        if idx is None:
+            await callback.message.edit_text("Ошибка: выберите тариф заново.", reply_markup=admin_menu())
+            await state.clear()
+            return
+        plan = cfg.plans[idx]
         tg_id = data["grant_tg_id"]
 
-        await _process_payment(cfg, db, xui, bot, tg_id, plan, f"grant_{tg_id}_{idx}")
+        await _process_payment(cfg, db, xui, bot, tg_id, plan, f"grant_{tg_id}_{idx}", device_count)
         await state.clear()
+        total_price = calc_total_price(plan, device_count)
         await callback.message.edit_text(
-            f"✅ Подписка {plan.name} выдана пользователю {tg_id}.",
+            f"✅ Подписка выдана!\n"
+            f"💡 {plan.days} дней | Безлимит ♾\n"
+            f"📱 Устройств: {device_count}\n"
+            f"💵 Сумма: {total_price} руб\n"
+            f"👤 Пользователь: {tg_id}",
             reply_markup=admin_menu(),
         )
 
@@ -662,10 +804,12 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         expired = datetime.fromisoformat(sub["expired_at"]) if sub.get("expired_at") else None
         expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "?"
         sub_url = cfg.make_sub_url(sub["uuid"])
+        devices = sub.get("device_count", 3)
         text = (
             f"👤 {user_name} (ID: {user_tg_id})\n"
             f"💡 {sub['plan_name']}\n"
             f"📅 До: {expired_str}\n"
+            f"📱 Устройств: {devices}\n"
             f"🔗 <code>{sub_url}</code>"
         )
         await callback.message.edit_text(text, reply_markup=admin_sub_actions_keyboard(sub_id))
@@ -783,9 +927,11 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             expired = datetime.fromisoformat(s["expired_at"]) if s.get("expired_at") else None
             expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "бессрочно"
             sub_url = cfg.make_sub_url(s["uuid"])
+            devices = s.get("device_count", 3)
             await message.answer(
                 f"▶ {s['plan_name']}\n"
                 f"📅 До: {expired_str}\n"
+                f"📱 Устройств: {devices}\n"
                 f"🔗 <code>{sub_url}</code>"
             )
 

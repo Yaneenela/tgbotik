@@ -28,7 +28,7 @@ class XUIManager:
         return None
 
     async def create_client(
-        self, inbound_ids: list[int], email: str, days: int, traffic_gb: int = 0
+        self, inbound_ids: list[int], email: str, days: int, traffic_gb: int = 0, device_count: int = 3
     ) -> tuple[str, Client]:
         await self._ensure_login()
         client_uuid = str(uuid_lib.uuid4())
@@ -39,7 +39,7 @@ class XUIManager:
             id=client_uuid,
             email=email,
             flow="xtls-rprx-vision",
-            limit_ip=0,
+            limit_ip=device_count,
             total_gb=total_gb,
             expiry_time=expiry,
             enable=True,
@@ -61,7 +61,7 @@ class XUIManager:
                 pass
 
     async def update_client_expiry(
-        self, client_uuid: str, email: str, additional_days: int
+        self, client_uuid: str, email: str, additional_days: int, device_count: int = 3
     ):
         await self._ensure_login()
         now_ms = int(datetime.now().timestamp() * 1000)
@@ -73,6 +73,7 @@ class XUIManager:
             expiry_time=new_expiry,
             enable=True,
             flow="xtls-rprx-vision",
+            limit_ip=device_count,
         )
         await asyncio.to_thread(self.api.client.update, client_uuid, updated)
 
