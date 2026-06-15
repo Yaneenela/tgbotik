@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 async def _nav(callback: CallbackQuery, text: str, markup=None):
     await callback.answer()
-    await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
+    await callback.message.answer(text, reply_markup=markup)
     try:
         await callback.message.delete()
     except Exception:
@@ -294,7 +294,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_help(callback: CallbackQuery):
         text = (
             "💬 Помощь\n\n"
-            "Выберите ваше устройство для инструкции по установке Happ (Hiddify):"
+            "Выберите ваше устройство для инструкции по установке Happ:"
         )
         await _nav(callback, text, help_keyboard())
 
