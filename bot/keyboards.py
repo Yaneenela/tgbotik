@@ -4,8 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if has_payment:
-        builder.button(text="\U0001f48e Купить подписку", callback_data="buy")
+    builder.button(text="\U0001f48e Купить подписку", callback_data="buy")
     builder.button(text="\U0001f4cb Мои подписки", callback_data="my_subs")
     builder.button(text="\u2753 Помощь", callback_data="help")
     if is_admin:
