@@ -303,8 +303,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         platform = callback.data.split(":")[1]
         guides = {
             "android": (
-                "📱 **Android — Hiddify (Happ)**\n\n"
-                "1. Скачайте Hiddify из Google Play или с оф. сайта hiddify.com\n"
+                "📱 **Android — Happ**\n\n"
+                "1. Скачайте Happ из Google Play или с оф. сайта hiddify.com\n"
                 "2. Откройте приложение\n"
                 "3. Нажмите **+** → **Добавить из буфера**\n"
                 "4. Скопируйте ссылку подписки из профиля бота\n"
@@ -312,26 +312,17 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                 "6. Выберите профиль и нажмите **Подключиться**"
             ),
             "ios": (
-                "🍎 **iOS / iPadOS — Hiddify (Happ)**\n\n"
-                "1. Скачайте Hiddify из App Store\n"
+                "🍎 **iOS / iPadOS — Happ**\n\n"
+                "1. Скачайте Happ из App Store\n"
                 "2. Откройте приложение\n"
                 "3. Нажмите **+** → **Импортировать из буфера**\n"
                 "4. Скопируйте ссылку подписки из профиля бота\n"
                 "5. Приложение подставит данные — нажмите **Добавить**\n"
                 "6. Включите тумблер для подключения"
             ),
-            "windows": (
-                "💻 **Windows — Hiddify (Happ)**\n\n"
-                "1. Скачайте Hiddify с hiddify.com (Windows версия)\n"
-                "2. Установите и запустите\n"
-                "3. Нажмите **+** → **Добавить из буфера обмена**\n"
-                "4. Скопируйте ссылку подписки из профиля бота\n"
-                "5. Нажмите **Добавить**\n"
-                "6. Включите переключатель для подключения"
-            ),
-            "macos": (
-                "🍏 **MacOS — Hiddify (Happ)**\n\n"
-                "1. Скачайте Hiddify для MacOS с hiddify.com\n"
+            "desktop": (
+                "💻 **Windows / MacOS — Happ**\n\n"
+                "1. Скачайте Happ для вашей ОС с hiddify.com\n"
                 "2. Установите и запустите\n"
                 "3. Нажмите **+** → **Добавить из буфера обмена**\n"
                 "4. Скопируйте ссылку подписки из профиля бота\n"
