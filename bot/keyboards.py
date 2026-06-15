@@ -25,7 +25,7 @@ def help_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="📱 Android", callback_data="help_platform:android")
     builder.button(text="🍎 iOS", callback_data="help_platform:ios")
-    builder.button(text="💻 Desktop (Windows/MacOS)", callback_data="help_platform:desktop")
+    builder.button(text="💻 Desktop", callback_data="help_platform:desktop")
     builder.button(text="◀ Назад", callback_data="menu")
     builder.adjust(2)
     return builder.as_markup()
