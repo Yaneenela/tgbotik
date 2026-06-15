@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from bot.config import load_config
 from bot.db import Database
 from bot.xui import XUIManager
-from bot.handlers import create_router, check_pending_payments, scheduler
+from bot.handlers import create_router, check_pending_payments, scheduler, sync_subscriptions
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -49,6 +49,8 @@ async def main():
     except Exception as e:
         logger.error(f"Failed to connect to 3x-UI: {e}")
         return
+
+    await sync_subscriptions(cfg, db, xui)
 
     bot = Bot(token=cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()

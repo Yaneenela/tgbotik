@@ -205,6 +205,33 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
         await asyncio.sleep(3600)
 
 
+async def sync_subscriptions(cfg: Config, db: Database, xui: XUIManager):
+    """Deactivate subs in DB whose clients no longer exist in 3x-ui."""
+    try:
+        subs = await db.get_all_active_subs()
+        if not subs:
+            return
+
+        inbounds = await xui.get_inbounds()
+        uuids_in_3xui = set()
+        for ib in inbounds:
+            for c in (ib.settings.clients or []):
+                if c.id:
+                    uuids_in_3xui.add(str(c.id))
+
+        deactivated = 0
+        for sub in subs:
+            if sub["uuid"] not in uuids_in_3xui:
+                await db.deactivate_sub(sub["id"])
+                deactivated += 1
+                logger.info(f"Synced: deactivated sub #{sub['id']} (not found in 3x-ui)")
+
+        if deactivated:
+            logger.info(f"Sync complete: {deactivated} subscriptions deactivated")
+    except Exception as e:
+        logger.error(f"Sync error: {e}")
+
+
 class AdminStates(StatesGroup):
     broadcast_text = State()
     extend_days = State()
