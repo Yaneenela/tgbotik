@@ -29,7 +29,7 @@ async def _process_payment(
 
     if existing:
         try:
-            await xui.update_client_expiry(existing["uuid"], plan.days, cfg.xui_inbound_ids)
+            await xui.update_client_expiry(existing["uuid"], f"tg_{tg_id}", plan.days)
         except Exception as e:
             logger.error(f"3x-UI extend error: {e}")
             await bot.send_message(tg_id, f"\u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0440\u043e\u0434\u043b\u0435\u043d\u0438\u044f: {e}")
@@ -676,7 +676,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
 
         try:
-            await xui.update_client_expiry(sub["uuid"], days, cfg.xui_inbound_ids)
+            cursor = await db.conn.execute("SELECT telegram_id FROM users WHERE id = ?", (sub["user_id"],))
+            user_row = await cursor.fetchone()
+            email = f"tg_{user_row['telegram_id']}" if user_row else f"tg_{sub['user_id']}"
+            await xui.update_client_expiry(sub["uuid"], email, days)
         except Exception as e:
             await message.answer(f"\u041e\u0448\u0438\u0431\u043a\u0430 3x-UI: {e}")
             await state.clear()

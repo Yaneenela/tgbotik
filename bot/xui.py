@@ -48,13 +48,7 @@ class XUIManager:
         )
 
         for inbound_id in inbound_ids:
-            inbound = await self.get_inbound(inbound_id)
-            if not inbound:
-                raise ValueError(f"Inbound {inbound_id} not found")
-            if inbound.settings.clients is None:
-                inbound.settings.clients = []
-            inbound.settings.clients.append(client)
-            await asyncio.to_thread(self.api.inbound.update, inbound_id, inbound)
+            await asyncio.to_thread(self.api.client.add, inbound_id, [client])
 
         return client_uuid, client
 
@@ -67,25 +61,20 @@ class XUIManager:
                 pass
 
     async def update_client_expiry(
-        self, client_uuid: str, additional_days: int, inbound_ids: list[int]
+        self, client_uuid: str, email: str, additional_days: int
     ):
         await self._ensure_login()
-        for inbound_id in inbound_ids:
-            inbound = await self.get_inbound(inbound_id)
-            if not inbound or not inbound.settings.clients:
-                continue
-            for c in inbound.settings.clients:
-                if str(c.id) == client_uuid:
-                    current_expiry = c.expiry_time or 0
-                    now_ms = int(datetime.now().timestamp() * 1000)
-                    if current_expiry > now_ms:
-                        new_expiry = current_expiry + additional_days * 86400000
-                    else:
-                        new_expiry = now_ms + additional_days * 86400000
-                    c.expiry_time = new_expiry
-                    c.enable = True
-                    break
-            await asyncio.to_thread(self.api.inbound.update, inbound_id, inbound)
+        now_ms = int(datetime.now().timestamp() * 1000)
+        new_expiry = now_ms + additional_days * 86400000
+
+        updated = Client(
+            id=client_uuid,
+            email=email,
+            expiry_time=new_expiry,
+            enable=True,
+            flow="xtls-rprx-vision",
+        )
+        await asyncio.to_thread(self.api.client.update, client_uuid, updated)
 
     async def get_client_traffic(self, client_uuid: str) -> dict:
         await self._ensure_login()
