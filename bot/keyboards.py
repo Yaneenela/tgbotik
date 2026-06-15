@@ -30,10 +30,12 @@ def plans_keyboard(plans: list, prefix: str = "plan") -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def payment_methods_keyboard(has_yookassa: bool) -> InlineKeyboardMarkup:
+def payment_methods_keyboard(has_yookassa: bool, has_crypto: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if has_yookassa:
-        builder.button(text="\U0001f4b3 ЮKassa (карта, ЮMoney)", callback_data="pay:yookassa")
+        builder.button(text="\U0001f4b3 СБП / Карта РФ / ЮMoney", callback_data="pay:yookassa")
+    if has_crypto:
+        builder.button(text="\U0001f4b1 CryptoBot (USDT)", callback_data="pay:crypto")
     builder.button(text="\u25c0 \u041d\u0430\u0437\u0430\u0434", callback_data="buy")
     builder.adjust(1)
     return builder.as_markup()

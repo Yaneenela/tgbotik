@@ -23,6 +23,7 @@ class Config:
     sub_url_template: str
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
+    crypto_bot_token: str = ""
     currency: str = "RUB"
     plans: list[Plan] = field(default_factory=list)
 
@@ -49,6 +50,7 @@ def load_config() -> Config:
         sub_url_template=os.getenv("SUB_URL_TEMPLATE", ""),
         yookassa_shop_id=os.getenv("YOOKASSA_SHOP_ID", ""),
         yookassa_secret_key=os.getenv("YOOKASSA_SECRET_KEY", ""),
+        crypto_bot_token=os.getenv("CRYPTO_BOT_TOKEN", ""),
         currency=os.getenv("CURRENCY", "RUB"),
         plans=plans,
     )

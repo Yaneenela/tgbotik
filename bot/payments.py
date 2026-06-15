@@ -74,3 +74,61 @@ class YooKassa:
                 status=data["status"],
                 amount=data["amount"]["value"],
             )
+
+
+@dataclass
+class CryptoInvoice:
+    invoice_id: int
+    pay_url: str
+    status: str
+    amount: str
+
+
+class CryptoBot:
+    def __init__(self, token: str):
+        self.token = token
+        self.base = "https://pay.crypt.bot/api"
+        self.headers = {"Crypto-Pay-API-Token": token}
+
+    async def create_invoice(
+        self, amount: float, description: str = ""
+    ) -> Optional[CryptoInvoice]:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{self.base}/createInvoice",
+                headers=self.headers,
+                json={
+                    "amount": str(amount),
+                    "currency_type": "crypto",
+                    "accepted_assets": ["USDT"],
+                    "description": description,
+                },
+            )
+            data = resp.json()
+            if data.get("ok"):
+                result = data["result"]
+                return CryptoInvoice(
+                    invoice_id=result["invoice_id"],
+                    pay_url=result["pay_url"],
+                    status=result["status"],
+                    amount=result["amount"],
+                )
+            return None
+
+    async def check_invoice(self, invoice_id: int) -> Optional[CryptoInvoice]:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.base}/getInvoices",
+                headers=self.headers,
+                params={"invoice_ids": str(invoice_id)},
+            )
+            data = resp.json()
+            if data.get("ok") and data.get("result", {}).get("items"):
+                item = data["result"]["items"][0]
+                return CryptoInvoice(
+                    invoice_id=item["invoice_id"],
+                    pay_url=item.get("pay_url", ""),
+                    status=item["status"],
+                    amount=item["amount"],
+                )
+            return None

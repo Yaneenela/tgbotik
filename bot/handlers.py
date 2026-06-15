@@ -10,41 +10,10 @@ from aiogram.fsm.context import FSMContext
 from bot.config import Config, Plan
 from bot.db import Database
 from bot.xui import XUIManager
-from bot.payments import YooKassa
+from bot.payments import YooKassa, CryptoBot
 from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu
 
 logger = logging.getLogger(__name__)
-
-
-async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
-    await asyncio.sleep(10)
-    while True:
-        try:
-            yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key)
-            cursor = await db.conn.execute(
-                "SELECT t.*, u.telegram_id FROM transactions t JOIN users u ON t.user_id = u.id "
-                "WHERE t.status = 'pending' AND t.payment_system = 'yookassa'"
-            )
-            rows = await cursor.fetchall()
-            for row in rows:
-                payment = await yoo.check_payment(row["payment_id"])
-                if payment and payment.status == "succeeded":
-                    plan_name = row.get("plan_name", "")
-                    plan = next((p for p in cfg.plans if p.name == plan_name), None)
-                    if plan:
-                        await _process_payment(cfg, db, xui, bot, row["telegram_id"], plan, row["payment_id"])
-                        await db.update_transaction(row["payment_id"], "completed")
-                        try:
-                            await bot.send_message(
-                                row["telegram_id"],
-                                f"\u2705 \u041e\u043f\u043b\u0430\u0442\u0430 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430! "
-                                f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430.",
-                            )
-                        except Exception:
-                            pass
-        except Exception as e:
-            logger.error(f"Payment checker error: {e}")
-        await asyncio.sleep(30)
 
 
 async def _process_payment(
@@ -103,10 +72,52 @@ async def _process_payment(
             pass
 
 
+async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
+    await asyncio.sleep(10)
+    yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key) if cfg.yookassa_shop_id else None
+    crypto = CryptoBot(cfg.crypto_bot_token) if cfg.crypto_bot_token else None
+    while True:
+        try:
+            cursor = await db.conn.execute(
+                "SELECT t.*, u.telegram_id FROM transactions t JOIN users u ON t.user_id = u.id "
+                "WHERE t.status = 'pending'"
+            )
+            rows = await cursor.fetchall()
+            for row in rows:
+                plan = next((p for p in cfg.plans if p.name == row["plan_name"]), None)
+                if not plan:
+                    continue
+
+                paid = False
+                if row["payment_system"] == "yookassa" and yoo:
+                    payment = await yoo.check_payment(row["payment_id"])
+                    if payment and payment.status == "succeeded":
+                        paid = True
+                elif row["payment_system"] == "cryptobot" and crypto:
+                    invoice = await crypto.check_invoice(int(row["payment_id"]))
+                    if invoice and invoice.status == "paid":
+                        paid = True
+
+                if paid:
+                    await _process_payment(cfg, db, xui, bot, row["telegram_id"], plan, row["payment_id"])
+                    await db.update_transaction(row["payment_id"], "completed")
+                    try:
+                        await bot.send_message(
+                            row["telegram_id"],
+                            "\u2705 \u041e\u043f\u043b\u0430\u0442\u0430 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430! \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430.",
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"Payment checker error: {e}")
+        await asyncio.sleep(30)
+
+
 def create_router(cfg: Config, db: Database, xui: XUIManager):
     router = Router()
 
     yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key) if cfg.yookassa_shop_id and cfg.yookassa_secret_key else None
+    crypto = CryptoBot(cfg.crypto_bot_token) if cfg.crypto_bot_token else None
 
     @router.message(Command("start"))
     async def cmd_start(message: Message):
@@ -168,7 +179,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         )
         await callback.message.edit_text(
             text,
-            reply_markup=payment_methods_keyboard(bool(yoo)),
+            reply_markup=payment_methods_keyboard(bool(yoo), bool(crypto)),
         )
 
     @router.callback_query(F.data == "pay:yookassa")
@@ -217,7 +228,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             plan_name=plan.name,
         )
 
-        await state.update_data(payment_id=payment.payment_id, plan_index=idx)
+        await state.update_data(payment_id=payment.payment_id, plan_index=idx, payment_method="yookassa")
         await callback.message.edit_text(
             f"\U0001f4b3 \u0421\u0447\u0451\u0442 \u0441\u043e\u0437\u0434\u0430\u043d!\n\n"
             f"\u0421\u0443\u043c\u043c\u0430: {plan.price} \u0440\u0443\u0431\n"
@@ -226,7 +237,66 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text="\U0001f4b3 \u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c", url=payment.confirmation_url)],
-                    [InlineKeyboardButton(text="\u2705 \u042f \u043e\u043f\u043b\u0430\u0442\u0438\u043b", callback_data=f"check_pay:{payment.payment_id}:{idx}")],
+                    [InlineKeyboardButton(text="\u2705 \u042f \u043e\u043f\u043b\u0430\u0442\u0438\u043b", callback_data=f"check_pay:yoo:{payment.payment_id}:{idx}")],
+                    [InlineKeyboardButton(text="\u25c0 \u041d\u0430\u0437\u0430\u0434", callback_data="buy")],
+                ]
+            ),
+        )
+
+    @router.callback_query(F.data == "pay:crypto")
+    async def cb_pay_crypto(callback: CallbackQuery, state: FSMContext, bot: Bot):
+        data = await state.get_data()
+        idx = data.get("plan_index")
+        if idx is None:
+            await callback.message.edit_text(
+                "\u041e\u0448\u0438\u0431\u043a\u0430: \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0430\u0440\u0438\u0444 \u0437\u0430\u043d\u043e\u0432\u043e.",
+                reply_markup=back_button(),
+            )
+            return
+        plan = cfg.plans[idx]
+        tg_id = callback.from_user.id
+
+        if not crypto:
+            await callback.message.edit_text(
+                "\u041e\u043f\u043b\u0430\u0442\u0430 \u0447\u0435\u0440\u0435\u0437 CryptoBot \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430.",
+                reply_markup=back_button(),
+            )
+            return
+
+        await callback.message.edit_text("\U000023f3 \u0421\u043e\u0437\u0434\u0430\u0451\u043c \u0441\u0447\u0451\u0442...")
+
+        invoice = await crypto.create_invoice(
+            amount=plan.price,
+            description=f"{plan.name} | @{callback.from_user.username or tg_id}",
+        )
+
+        if not invoice:
+            await callback.message.edit_text(
+                "\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f \u0441\u0447\u0451\u0442\u0430. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.",
+                reply_markup=back_button(),
+            )
+            return
+
+        user = await db.get_user(tg_id)
+        await db.add_transaction(
+            user_id=user["id"],
+            amount=plan.price,
+            currency=cfg.currency,
+            payment_system="cryptobot",
+            payment_id=str(invoice.invoice_id),
+            plan_name=plan.name,
+        )
+
+        await state.update_data(payment_id=str(invoice.invoice_id), plan_index=idx, payment_method="crypto")
+        await callback.message.edit_text(
+            f"\U0001f4b1 \u0421\u0447\u0451\u0442 \u0441\u043e\u0437\u0434\u0430\u043d!\n\n"
+            f"\u0421\u0443\u043c\u043c\u0430: {plan.price} \u0440\u0443\u0431 (\u0432 USDT)\n"
+            f"\u0417\u0430: {plan.name}\n\n"
+            f"\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u043d\u0438\u0436\u0435 \u0434\u043b\u044f \u043e\u043f\u043b\u0430\u0442\u044b:",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="\U0001f4b1 \u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c", url=invoice.pay_url)],
+                    [InlineKeyboardButton(text="\u2705 \u042f \u043e\u043f\u043b\u0430\u0442\u0438\u043b", callback_data=f"check_pay:crypto:{invoice.invoice_id}:{idx}")],
                     [InlineKeyboardButton(text="\u25c0 \u041d\u0430\u0437\u0430\u0434", callback_data="buy")],
                 ]
             ),
@@ -235,17 +305,22 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     @router.callback_query(F.data.startswith("check_pay:"))
     async def cb_check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
         parts = callback.data.split(":")
-        _, pay_id, idx_str = parts
+        _, method, pay_id, idx_str = parts
         idx = int(idx_str)
         plan = cfg.plans[idx]
         tg_id = callback.from_user.id
 
-        if not yoo:
-            await callback.answer("\u041f\u043b\u0430\u0442\u0435\u0436\u043d\u0430\u044f \u0441\u0438\u0441\u0442\u0435\u043c\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430", show_alert=True)
-            return
+        paid = False
+        if method == "yoo" and yoo:
+            payment = await yoo.check_payment(pay_id)
+            if payment and payment.status == "succeeded":
+                paid = True
+        elif method == "crypto" and crypto:
+            invoice = await crypto.check_invoice(int(pay_id))
+            if invoice and invoice.status == "paid":
+                paid = True
 
-        payment = await yoo.check_payment(pay_id)
-        if payment and payment.status == "succeeded":
+        if paid:
             await _process_payment(cfg, db, xui, bot, tg_id, plan, pay_id)
             await db.update_transaction(pay_id, "completed")
             await callback.message.edit_text(
