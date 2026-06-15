@@ -36,13 +36,25 @@ class Config:
 
 
 def load_config() -> Config:
-    plans_data = json.loads(os.getenv("PLANS", "[]"))
-    plans = [Plan(**p) for p in plans_data]
+    try:
+        plans_data = json.loads(os.getenv("PLANS", "[]"))
+        plans = [Plan(**p) for p in plans_data]
+    except (json.JSONDecodeError, TypeError, KeyError):
+        plans = []
+
+    admin_ids = []
+    for val in os.getenv("ADMIN_IDS", "").split(","):
+        val = val.strip()
+        if val:
+            try:
+                admin_ids.append(int(val))
+            except ValueError:
+                pass
 
     return Config(
         bot_token=os.getenv("BOT_TOKEN", ""),
         bot_username=os.getenv("BOT_USERNAME", ""),
-        admin_ids=[int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()],
+        admin_ids=admin_ids,
         xui_url=os.getenv("XUI_URL", ""),
         xui_username=os.getenv("XUI_USERNAME", ""),
         xui_password=os.getenv("XUI_PASSWORD", ""),

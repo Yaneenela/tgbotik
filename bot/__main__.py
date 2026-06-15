@@ -33,8 +33,10 @@ async def main():
     if not cfg.xui_url or not cfg.xui_username or not cfg.xui_password:
         logger.error("XUI_URL, XUI_USERNAME, XUI_PASSWORD are required")
         return
-    if not cfg.yookassa_shop_id or not cfg.yookassa_secret_key:
-        logger.error("YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY are required")
+    has_yoo = bool(cfg.yookassa_shop_id and cfg.yookassa_secret_key)
+    has_crypto = bool(cfg.crypto_bot_token)
+    if not has_yoo and not has_crypto:
+        logger.error("At least one payment method required: YOOKASSA or CRYPTO_BOT_TOKEN")
         return
 
     db = Database()

@@ -74,7 +74,7 @@ async def _process_payment(
 
 async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
     await asyncio.sleep(10)
-    yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key) if cfg.yookassa_shop_id else None
+    yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key) if cfg.yookassa_shop_id and cfg.yookassa_secret_key else None
     crypto = CryptoBot(cfg.crypto_bot_token) if cfg.crypto_bot_token else None
     while True:
         try:
@@ -99,6 +99,17 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
                         paid = True
 
                 if paid:
+                    await db.conn.execute(
+                        "UPDATE transactions SET status = 'processing' WHERE payment_id = ? AND status = 'pending'",
+                        (row["payment_id"],),
+                    )
+                    await db.conn.commit()
+                    cursor2 = await db.conn.execute(
+                        "SELECT changes()"
+                    )
+                    rowcount = (await cursor2.fetchone())[0]
+                    if rowcount == 0:
+                        continue
                     await _process_payment(cfg, db, xui, bot, row["telegram_id"], plan, row["payment_id"])
                     await db.update_transaction(row["payment_id"], "completed")
                     try:
@@ -321,6 +332,16 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                 paid = True
 
         if paid:
+            await db.conn.execute(
+                "UPDATE transactions SET status = 'processing' WHERE payment_id = ? AND status = 'pending'",
+                (pay_id,),
+            )
+            await db.conn.commit()
+            cursor2 = await db.conn.execute("SELECT changes()")
+            rowcount = (await cursor2.fetchone())[0]
+            if rowcount == 0:
+                await callback.answer("\u041f\u043b\u0430\u0442\u0435\u0436 \u0443\u0436\u0435 \u043e\u0431\u0440\u0430\u0431\u0430\u0442\u044b\u0432\u0430\u0435\u0442\u0441\u044f", show_alert=True)
+                return
             await _process_payment(cfg, db, xui, bot, tg_id, plan, pay_id)
             await db.update_transaction(pay_id, "completed")
             await callback.message.edit_text(
