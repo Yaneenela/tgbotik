@@ -13,7 +13,7 @@ from bot.config import Config, Plan
 from bot.db import Database
 from bot.xui import XUIManager
 from bot.payments import YooKassa, CryptoBot
-from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard, device_count_keyboard, edit_device_keyboard
+from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard, device_count_keyboard, edit_device_keyboard, device_mgmt_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -628,11 +628,47 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
             return
         current = sub.get("device_count", 3)
+        email = f"tg_{callback.from_user.id}"
+        ips = await xui.get_client_ips(email)
+        ips_str = ", ".join(ips) if ips else "нет"
+        text = (
+            f"💡 {sub['plan_name']}\n"
+            f"📱 Лимит устройств: {current}\n"
+            f"🔌 Подключено IP: {ips_str}\n"
+        )
+        await callback.message.edit_text(text, reply_markup=device_mgmt_keyboard(sub_id, current))
+
+    @router.callback_query(F.data.startswith("edit_dev_count:"))
+    async def cb_edit_dev_count(callback: CallbackQuery):
+        sub_id = int(callback.data.split(":")[1])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
+            return
+        current = sub.get("device_count", 3)
         await callback.message.edit_text(
             f"💡 {sub['plan_name']}\n"
             f"📱 Текущее количество устройств: {current}\n\n"
             f"Выберите новое количество:",
             reply_markup=edit_device_keyboard(sub_id, current),
+        )
+
+    @router.callback_query(F.data.startswith("edit_dev_reset:"))
+    async def cb_edit_dev_reset(callback: CallbackQuery):
+        sub_id = int(callback.data.split(":")[1])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
+            return
+        email = f"tg_{callback.from_user.id}"
+        try:
+            await xui.reset_client_ips(email)
+        except Exception as e:
+            await callback.message.edit_text(f"Ошибка: {e}", reply_markup=back_button())
+            return
+        await callback.message.edit_text(
+            "🔌 Все подключения сброшены.",
+            reply_markup=device_mgmt_keyboard(sub_id, sub.get("device_count", 3)),
         )
 
     @router.callback_query(F.data.startswith("devedit:"))
@@ -657,7 +693,66 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         await callback.message.edit_text(
             f"✅ Количество устройств изменено на {new_count}.",
-            reply_markup=back_button(),
+            reply_markup=device_mgmt_keyboard(sub_id, new_count),
+        )
+
+    @router.callback_query(F.data.startswith("edit_dev_upgrade:"))
+    async def cb_edit_dev_upgrade(callback: CallbackQuery):
+        sub_id = int(callback.data.split(":")[1])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
+            return
+        current = sub.get("device_count", 3)
+        text = (
+            f"📈 Увеличение лимита устройств\n\n"
+            f"Текущий лимит: {current}\n"
+            f"➕ Стоимость доп. устройства: 50 руб/шт\n\n"
+            f"Выберите новое количество устройств:"
+        )
+        await callback.message.edit_text(text, reply_markup=device_count_keyboard(current, f"upgrade_dev:{sub_id}", f"edit_dev_sub:{sub_id}"))
+
+    @router.callback_query(F.data.startswith("upgrade_dev:"))
+    async def cb_upgrade_dev_confirm(callback: CallbackQuery, bot: Bot):
+        parts = callback.data.split(":")
+        sub_id = int(parts[1])
+        new_count = int(parts[2])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
+            return
+        current = sub.get("device_count", 3)
+        if new_count <= current:
+            await callback.answer("Новое количество должно быть больше текущего.", show_alert=True)
+            return
+        extra = new_count - current
+        plan = next((p for p in cfg.plans if p.name == sub["plan_name"]), None)
+        plan_price_extra = plan.extra_device_price if plan else 50
+        price = extra * plan_price_extra
+
+        if cfg.has_payment:
+            await callback.message.edit_text(
+                f"📈 Увеличение лимита\n\n"
+                f"Сейчас: {current} устройств\n"
+                f"Новый лимит: {new_count} устройств\n"
+                f"➕ Дополнительно: +{extra} шт\n"
+                f"💵 Сумма: {price} руб\n\n"
+                f"Оплата в разработке. Обратитесь к администратору.",
+                reply_markup=back_button(),
+            )
+            return
+
+        tg_id = callback.from_user.id
+        await db.update_sub_device_count(sub_id, new_count)
+        try:
+            remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - datetime.now()).days) if sub.get("expired_at") else 0
+            await xui.update_client_expiry(sub["uuid"], f"tg_{tg_id}", remaining_days, new_count)
+        except Exception as e:
+            await callback.message.edit_text(f"Ошибка 3x-UI: {e}", reply_markup=back_button())
+            return
+        await callback.message.edit_text(
+            f"✅ Лимит увеличен до {new_count} устройств.",
+            reply_markup=device_mgmt_keyboard(sub_id, new_count),
         )
 
     @router.callback_query(F.data == "admin")

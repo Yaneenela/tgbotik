@@ -44,7 +44,17 @@ def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str
 
 
 def edit_device_keyboard(sub_id: int, current: int = 3) -> InlineKeyboardMarkup:
-    return device_count_keyboard(current, f"devedit:{sub_id}", "my_subs")
+    return device_count_keyboard(current, f"devedit:{sub_id}", f"edit_dev_sub:{sub_id}")
+
+
+def device_mgmt_keyboard(sub_id: int, current: int = 3) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📱 Изменить количество", callback_data=f"edit_dev_count:{sub_id}")
+    builder.button(text="🔌 Отключить все", callback_data=f"edit_dev_reset:{sub_id}")
+    builder.button(text="📈 Увеличить лимит", callback_data=f"edit_dev_upgrade:{sub_id}")
+    builder.button(text="◀ Назад", callback_data="my_subs")
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def payment_methods_keyboard(has_yookassa: bool, has_crypto: bool) -> InlineKeyboardMarkup:

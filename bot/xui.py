@@ -87,3 +87,17 @@ class XUIManager:
         except Exception:
             pass
         return {"up": 0, "down": 0}
+
+    async def get_client_ips(self, email: str) -> list[str]:
+        await self._ensure_login()
+        try:
+            return await asyncio.to_thread(self.api.client.get_ips, email)
+        except Exception:
+            return []
+
+    async def reset_client_ips(self, email: str):
+        await self._ensure_login()
+        try:
+            await asyncio.to_thread(self.api.client.reset_ips, email)
+        except Exception:
+            pass
