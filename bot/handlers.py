@@ -173,7 +173,7 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
                         "\u0412\u0430\u0448\u0430 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0438\u0441\u0442\u0435\u043a\u043b\u0430. "
                         "\u0427\u0442\u043e\u0431\u044b \u043f\u0440\u043e\u0434\u043e\u043b\u0436\u0438\u0442\u044c \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u044c\u0441\u044f VPN, "
                         "\u043f\u0440\u0438\u043e\u0431\u0440\u0435\u0442\u0438\u0442\u0435 \u043d\u043e\u0432\u044b\u0439 \u0442\u0430\u0440\u0438\u0444.",
-                        reply_markup=main_menu(cfg.has_payment),
+                        reply_markup=main_menu(cfg.has_payment, sub["telegram_id"] in cfg.admin_ids),
                     )
                 except Exception:
                     pass
@@ -194,7 +194,7 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
                         [InlineKeyboardButton(text="\u274c \u041d\u0435 \u0441\u0435\u0439\u0447\u0430\u0441", callback_data="menu")],
                     ])
                 else:
-                    markup = main_menu(cfg.has_payment)
+                    markup = main_menu(cfg.has_payment, sub["telegram_id"] in cfg.admin_ids)
                 try:
                     await bot.send_message(sub["telegram_id"], text, reply_markup=markup)
                     await db.mark_reminded(sub["id"])
@@ -226,7 +226,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"\u042f \u043f\u043e\u043c\u043e\u0433\u0443 \u043f\u0440\u0438\u043e\u0431\u0440\u0435\u0441\u0442\u0438 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443 VPN.\n"
             f"\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0438 \u043d\u0438\u0436\u0435 \u0434\u043b\u044f \u043d\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438."
         )
-        await message.answer(welcome, reply_markup=main_menu())
+        await message.answer(welcome, reply_markup=main_menu(cfg.has_payment, tg_id in cfg.admin_ids))
 
         if tg_id in cfg.admin_ids and not user.get("is_admin"):
             await db.conn.execute("UPDATE users SET is_admin = 1 WHERE telegram_id = ?", (tg_id,))
@@ -236,7 +236,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_menu(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         await callback.message.edit_text(
-            "\u0413\u043b\u0430\u0432\u043d\u043e\u0435 \u043c\u0435\u043d\u044e:", reply_markup=main_menu()
+            "\u0413\u043b\u0430\u0432\u043d\u043e\u0435 \u043c\u0435\u043d\u044e:", reply_markup=main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids)
         )
 
     @router.callback_query(F.data == "help")
@@ -432,7 +432,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             await callback.message.edit_text(
                 f"\u2705 \u041e\u043f\u043b\u0430\u0442\u0430 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430!\n\n"
                 f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430.",
-                reply_markup=main_menu(),
+                reply_markup=main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids),
             )
             await state.clear()
         else:
@@ -720,7 +720,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         for i, p in enumerate(cfg.plans):
             text += f"{i+1}. {p.name} \u2014 {p.price} \u0440\u0443\u0431 \u2014 {p.days} \u0434\u043d.\n"
         text += "\n\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u00ab\u041a\u0443\u043f\u0438\u0442\u044c \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443\u00bb \u0434\u043b\u044f \u043f\u043e\u043a\u0443\u043f\u043a\u0438."
-        await message.answer(text, reply_markup=main_menu())
+        await message.answer(text, reply_markup=main_menu(cfg.has_payment, message.from_user.id in cfg.admin_ids))
 
     @router.message(Command("broadcast"))
     async def cmd_broadcast(message: Message, bot: Bot):
@@ -744,7 +744,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def fallback(message: Message):
         await message.answer(
             "\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0438 \u043c\u0435\u043d\u044e \u0438\u043b\u0438 /start",
-            reply_markup=main_menu(),
+            reply_markup=main_menu(cfg.has_payment, message.from_user.id in cfg.admin_ids),
         )
 
     return router
