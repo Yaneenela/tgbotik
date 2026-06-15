@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from bot.config import load_config
 from bot.db import Database
 from bot.xui import XUIManager
-from bot.handlers import create_router, check_pending_payments
+from bot.handlers import create_router, check_pending_payments, scheduler
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -56,6 +56,7 @@ async def main():
     dp.include_router(create_router(cfg, db, xui))
 
     asyncio.create_task(check_pending_payments(cfg, db, xui, bot))
+    asyncio.create_task(scheduler(cfg, db, xui, bot))
 
     logger.info("Starting bot polling...")
     await dp.start_polling(bot, db=db, cfg=cfg, xui=xui)

@@ -54,6 +54,11 @@ class Database:
             );
         """)
         await self.conn.commit()
+        try:
+            await self.conn.execute("ALTER TABLE subscriptions ADD COLUMN reminded_at TIMESTAMP")
+            await self.conn.commit()
+        except Exception:
+            pass
 
     async def get_user(self, telegram_id: int) -> Optional[dict]:
         cursor = await self.conn.execute(
@@ -135,6 +140,87 @@ class Database:
         cursor = await self.conn.execute("SELECT * FROM users ORDER BY created_at DESC")
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+
+    async def get_all_active_subs(self) -> list[dict]:
+        cursor = await self.conn.execute(
+            "SELECT s.*, u.telegram_id, u.username FROM subscriptions s "
+            "JOIN users u ON s.user_id = u.id "
+            "WHERE s.is_active = 1 ORDER BY s.expired_at ASC"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    async def update_sub_expiry(self, sub_id: int, days: int):
+        expired_at = datetime.now() + timedelta(days=days)
+        await self.conn.execute(
+            "UPDATE subscriptions SET expired_at = ? WHERE id = ?",
+            (expired_at, sub_id),
+        )
+        await self.conn.commit()
+
+    async def deactivate_sub(self, sub_id: int):
+        await self.conn.execute(
+            "UPDATE subscriptions SET is_active = 0 WHERE id = ?",
+            (sub_id,),
+        )
+        await self.conn.commit()
+
+    async def get_active_sub_by_user_and_plan(self, user_id: int, plan_name: str) -> Optional[dict]:
+        cursor = await self.conn.execute(
+            "SELECT * FROM subscriptions WHERE user_id = ? AND plan_name = ? AND is_active = 1 LIMIT 1",
+            (user_id, plan_name),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_expiring_subs(self, within_days: int) -> list[dict]:
+        cursor = await self.conn.execute(
+            "SELECT s.*, u.telegram_id, u.username FROM subscriptions s "
+            "JOIN users u ON s.user_id = u.id "
+            "WHERE s.is_active = 1 AND s.expired_at IS NOT NULL"
+        )
+        rows = await cursor.fetchall()
+        now = datetime.now()
+        result = []
+        for r in rows:
+            expired = datetime.fromisoformat(r["expired_at"])
+            if now < expired <= now + timedelta(days=within_days):
+                reminded = r.get("reminded_at")
+                if reminded:
+                    reminded_dt = datetime.fromisoformat(reminded)
+                    if reminded_dt > now - timedelta(days=1):
+                        continue
+                result.append(dict(r))
+        return result
+
+    async def get_expired_subs(self) -> list[dict]:
+        cursor = await self.conn.execute(
+            "SELECT s.*, u.telegram_id FROM subscriptions s "
+            "JOIN users u ON s.user_id = u.id "
+            "WHERE s.is_active = 1 AND s.expired_at IS NOT NULL"
+        )
+        rows = await cursor.fetchall()
+        now = datetime.now()
+        return [dict(r) for r in rows if datetime.fromisoformat(r["expired_at"]) <= now]
+
+    async def mark_reminded(self, sub_id: int):
+        await self.conn.execute(
+            "UPDATE subscriptions SET reminded_at = ? WHERE id = ?",
+            (datetime.now(), sub_id),
+        )
+        await self.conn.commit()
+
+    async def extend_expiry(self, sub_id: int, days: int):
+        sub = await self.get_subscription(sub_id)
+        if not sub or not sub.get("expired_at"):
+            return
+        current = datetime.fromisoformat(sub["expired_at"])
+        new_expiry = current + timedelta(days=days)
+        await self.conn.execute(
+            "UPDATE subscriptions SET expired_at = ? WHERE id = ?",
+            (new_expiry, sub_id),
+        )
+        await self.conn.commit()
 
     async def is_admin(self, telegram_id: int) -> bool:
         user = await self.get_user(telegram_id)

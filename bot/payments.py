@@ -1,5 +1,6 @@
 import uuid
 import base64
+from datetime import datetime, timedelta, timezone
 import httpx
 from dataclasses import dataclass
 from typing import Optional
@@ -25,6 +26,7 @@ class YooKassa:
         self, amount: float, description: str = "", return_url: str = ""
     ) -> Optional[YooPayment]:
         idempotence_key = str(uuid.uuid4())
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{self.base}/payments",
@@ -44,6 +46,7 @@ class YooKassa:
                     },
                     "capture": True,
                     "description": description,
+                    "expires_at": expires_at,
                 },
             )
             if resp.status_code != 200:
@@ -102,6 +105,7 @@ class CryptoBot:
                     "currency_type": "crypto",
                     "accepted_assets": ["USDT"],
                     "description": description,
+                    "expires_in": 300,
                 },
             )
             data = resp.json()
