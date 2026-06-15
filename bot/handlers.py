@@ -208,6 +208,8 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
 class AdminStates(StatesGroup):
     broadcast_text = State()
     extend_days = State()
+    grant_user_id = State()
+    grant_plan = State()
 
 
 def create_router(cfg: Config, db: Database, xui: XUIManager):
@@ -546,6 +548,52 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await state.clear()
         await message.answer(
             f"\u2705 \u0420\u0430\u0441\u0441\u044b\u043b\u043a\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u0430. \u041e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043e: {sent}/{len(users)}",
+            reply_markup=admin_menu(),
+        )
+
+    @router.callback_query(F.data == "admin:grant")
+    async def cb_admin_grant(callback: CallbackQuery, state: FSMContext):
+        if callback.from_user.id not in cfg.admin_ids:
+            return
+        await state.set_state(AdminStates.grant_user_id)
+        await callback.message.edit_text(
+            "\U0001f464 \u0412\u0432\u0435\u0434\u0438\u0442\u0435 Telegram ID \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f:",
+            reply_markup=back_button(),
+        )
+
+    @router.message(AdminStates.grant_user_id)
+    async def msg_admin_grant_user(message: Message, state: FSMContext):
+        if message.from_user.id not in cfg.admin_ids:
+            return
+        try:
+            tg_id = int(message.text.strip())
+        except ValueError:
+            await message.answer("\u041d\u0435\u0432\u0435\u0440\u043d\u044b\u0439 ID. \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0447\u0438\u0441\u043b\u043e.")
+            return
+        user = await db.get_user(tg_id)
+        if not user:
+            user = await db.create_user(tg_id, None)
+        await state.update_data(grant_tg_id=tg_id)
+        await state.set_state(AdminStates.grant_plan)
+        await message.answer(
+            f"\u2705 \u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c \u043d\u0430\u0439\u0434\u0435\u043d (ID: {tg_id}).\n"
+            f"\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0430\u0440\u0438\u0444:",
+            reply_markup=plans_keyboard(cfg.plans, "grant_plan"),
+        )
+
+    @router.callback_query(F.data.startswith("grant_plan:"))
+    async def cb_admin_grant_plan(callback: CallbackQuery, state: FSMContext, bot: Bot):
+        if callback.from_user.id not in cfg.admin_ids:
+            return
+        idx = int(callback.data.split(":")[1])
+        plan = cfg.plans[idx]
+        data = await state.get_data()
+        tg_id = data["grant_tg_id"]
+
+        await _process_payment(cfg, db, xui, bot, tg_id, plan, f"grant_{tg_id}_{idx}")
+        await state.clear()
+        await callback.message.edit_text(
+            f"\u2705 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 {plan.name} \u0432\u044b\u0434\u0430\u043d\u0430 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044e {tg_id}.",
             reply_markup=admin_menu(),
         )
 

@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="\U0001f48e Купить подписку", callback_data="buy")
-    builder.button(text="\U0001f4cb Мои подписки", callback_data="my_subs")
+    builder.button(text="\U0001f4cb Профиль", callback_data="my_subs")
     builder.button(text="\u2753 Помощь", callback_data="help")
     if is_admin:
         builder.button(text="\U0001f6e1 \u0410\u0434\u043c\u0438\u043d\u043a\u0430", callback_data="admin")
@@ -50,6 +50,7 @@ def admin_menu() -> InlineKeyboardMarkup:
     builder.button(text="\U0001f4cb \u0412\u0441\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438", callback_data="admin:subs")
     builder.button(text="\U0001f4dd \u0423\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430\u043c\u0438", callback_data="admin:manage")
     builder.button(text="\U0001f4e8 \u0420\u0430\u0441\u0441\u044b\u043b\u043a\u0430", callback_data="admin:broadcast")
+    builder.button(text="\U0001f381 \u0412\u044b\u0434\u0430\u0442\u044c \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443", callback_data="admin:grant")
     builder.button(text="\u25c0 \u041d\u0430\u0437\u0430\u0434", callback_data="menu")
     builder.adjust(1)
     return builder.as_markup()
