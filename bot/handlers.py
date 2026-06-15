@@ -13,7 +13,7 @@ from bot.config import Config, Plan
 from bot.db import Database
 from bot.xui import XUIManager
 from bot.payments import YooKassa, CryptoBot
-from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard, device_count_keyboard, edit_device_keyboard, device_mgmt_keyboard
+from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard, device_count_keyboard, edit_device_keyboard, device_mgmt_keyboard, help_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -294,11 +294,53 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_help(callback: CallbackQuery):
         text = (
             "💬 Помощь\n\n"
-            "💎 Купить подписку — выберите тариф и оплатите\n"
-            "📋 Мои подписки — просмотр активных подписок\n\n"
-            "После оплаты вы получите ссылку на подписку."
+            "Выберите ваше устройство для инструкции по установке Happ (Hiddify):"
         )
-        await _nav(callback, text, back_button())
+        await _nav(callback, text, help_keyboard())
+
+    @router.callback_query(F.data.startswith("help_platform:"))
+    async def cb_help_platform(callback: CallbackQuery):
+        platform = callback.data.split(":")[1]
+        guides = {
+            "android": (
+                "📱 **Android — Hiddify (Happ)**\n\n"
+                "1. Скачайте Hiddify из Google Play или с оф. сайта hiddify.com\n"
+                "2. Откройте приложение\n"
+                "3. Нажмите **+** → **Добавить из буфера**\n"
+                "4. Скопируйте ссылку подписки из профиля бота\n"
+                "5. Приложение само подставит ссылку — нажмите **Добавить**\n"
+                "6. Выберите профиль и нажмите **Подключиться**"
+            ),
+            "ios": (
+                "🍎 **iOS / iPadOS — Hiddify (Happ)**\n\n"
+                "1. Скачайте Hiddify из App Store\n"
+                "2. Откройте приложение\n"
+                "3. Нажмите **+** → **Импортировать из буфера**\n"
+                "4. Скопируйте ссылку подписки из профиля бота\n"
+                "5. Приложение подставит данные — нажмите **Добавить**\n"
+                "6. Включите тумблер для подключения"
+            ),
+            "windows": (
+                "💻 **Windows — Hiddify (Happ)**\n\n"
+                "1. Скачайте Hiddify с hiddify.com (Windows версия)\n"
+                "2. Установите и запустите\n"
+                "3. Нажмите **+** → **Добавить из буфера обмена**\n"
+                "4. Скопируйте ссылку подписки из профиля бота\n"
+                "5. Нажмите **Добавить**\n"
+                "6. Включите переключатель для подключения"
+            ),
+            "macos": (
+                "🍏 **MacOS — Hiddify (Happ)**\n\n"
+                "1. Скачайте Hiddify для MacOS с hiddify.com\n"
+                "2. Установите и запустите\n"
+                "3. Нажмите **+** → **Добавить из буфера обмена**\n"
+                "4. Скопируйте ссылку подписки из профиля бота\n"
+                "5. Нажмите **Добавить**\n"
+                "6. Включите переключатель для подключения"
+            ),
+        }
+        text = guides.get(platform, "Инструкция для этой платформы пока не добавлена.")
+        await _nav(callback, text, back_button("help"))
 
     @router.callback_query(F.data == "buy")
     async def cb_buy(callback: CallbackQuery):

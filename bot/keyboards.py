@@ -15,9 +15,20 @@ def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboar
     return builder.as_markup()
 
 
-def back_button() -> InlineKeyboardMarkup:
+def back_button(back_cb: str = "menu") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="◀ Назад", callback_data=back_cb)
+    return builder.as_markup()
+
+
+def help_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📱 Android", callback_data="help_platform:android")
+    builder.button(text="🍎 iOS", callback_data="help_platform:ios")
+    builder.button(text="💻 Windows", callback_data="help_platform:windows")
+    builder.button(text="🍏 MacOS", callback_data="help_platform:macos")
     builder.button(text="◀ Назад", callback_data="menu")
+    builder.adjust(2)
     return builder.as_markup()
 
 
