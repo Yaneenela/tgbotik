@@ -19,7 +19,7 @@ class Config:
     xui_url: str
     xui_username: str
     xui_password: str
-    xui_inbound_id: int
+    xui_inbound_ids: list[int]
     sub_url_template: str
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
@@ -51,6 +51,19 @@ def load_config() -> Config:
             except ValueError:
                 pass
 
+    xui_inbound_ids = []
+    raw = os.getenv("XUI_INBOUND_IDS", "")
+    if raw:
+        for val in raw.split(","):
+            val = val.strip()
+            if val:
+                try:
+                    xui_inbound_ids.append(int(val))
+                except ValueError:
+                    pass
+    else:
+        xui_inbound_ids = [int(os.getenv("XUI_INBOUND_ID", "1"))]
+
     return Config(
         bot_token=os.getenv("BOT_TOKEN", ""),
         bot_username=os.getenv("BOT_USERNAME", ""),
@@ -58,7 +71,7 @@ def load_config() -> Config:
         xui_url=os.getenv("XUI_URL", ""),
         xui_username=os.getenv("XUI_USERNAME", ""),
         xui_password=os.getenv("XUI_PASSWORD", ""),
-        xui_inbound_id=int(os.getenv("XUI_INBOUND_ID", "1")),
+        xui_inbound_ids=xui_inbound_ids,
         sub_url_template=os.getenv("SUB_URL_TEMPLATE", ""),
         yookassa_shop_id=os.getenv("YOOKASSA_SHOP_ID", ""),
         yookassa_secret_key=os.getenv("YOOKASSA_SECRET_KEY", ""),

@@ -29,7 +29,7 @@ async def _process_payment(
 
     if existing:
         try:
-            await xui.update_client_expiry(existing["inbound_id"], existing["uuid"], plan.days)
+            await xui.update_client_expiry(existing["uuid"], plan.days, cfg.xui_inbound_ids)
         except Exception as e:
             logger.error(f"3x-UI extend error: {e}")
             await bot.send_message(tg_id, f"\u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0440\u043e\u0434\u043b\u0435\u043d\u0438\u044f: {e}")
@@ -40,7 +40,7 @@ async def _process_payment(
     else:
         try:
             client_uuid, client = await xui.create_client(
-                inbound_id=cfg.xui_inbound_id,
+                inbound_ids=cfg.xui_inbound_ids,
                 email=f"tg_{tg_id}",
                 days=plan.days,
                 traffic_gb=plan.traffic_gb,
@@ -53,7 +53,7 @@ async def _process_payment(
             user_id=user["id"],
             plan_name=plan.name,
             uuid_str=client_uuid,
-            inbound_id=cfg.xui_inbound_id,
+            inbound_id=cfg.xui_inbound_ids[0],
             days=plan.days,
             traffic_gb=plan.traffic_gb,
         )
@@ -162,7 +162,7 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
             expired = await db.get_expired_subs()
             for sub in expired:
                 try:
-                    await xui.delete_client(sub["inbound_id"], sub["uuid"])
+                    await xui.delete_client(sub["uuid"], cfg.xui_inbound_ids)
                 except Exception as e:
                     logger.error(f"Failed to delete expired client: {e}")
                 await db.deactivate_sub(sub["id"])
@@ -627,7 +627,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
 
         try:
-            await xui.update_client_expiry(sub["inbound_id"], sub["uuid"], days)
+            await xui.update_client_expiry(sub["uuid"], days, cfg.xui_inbound_ids)
         except Exception as e:
             await message.answer(f"\u041e\u0448\u0438\u0431\u043a\u0430 3x-UI: {e}")
             await state.clear()
@@ -665,7 +665,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
 
         try:
-            await xui.delete_client(sub["inbound_id"], sub["uuid"])
+            await xui.delete_client(sub["uuid"], cfg.xui_inbound_ids)
         except Exception as e:
             await callback.message.edit_text(
                 f"\u041e\u0448\u0438\u0431\u043a\u0430 3x-UI: {e}",

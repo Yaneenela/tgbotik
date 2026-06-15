@@ -28,7 +28,7 @@ class XUIManager:
         return None
 
     async def create_client(
-        self, inbound_id: int, email: str, days: int, traffic_gb: int = 0
+        self, inbound_ids: list[int], email: str, days: int, traffic_gb: int = 0
     ) -> tuple[str, Client]:
         await self._ensure_login()
         client_uuid = str(uuid_lib.uuid4())
@@ -47,44 +47,47 @@ class XUIManager:
             sub_id=client_uuid,
         )
 
-        inbound = await self.get_inbound(inbound_id)
-        if not inbound:
-            raise ValueError(f"Inbound {inbound_id} not found")
+        for inbound_id in inbound_ids:
+            inbound = await self.get_inbound(inbound_id)
+            if not inbound:
+                raise ValueError(f"Inbound {inbound_id} not found")
+            clients = inbound.settings.get("clients", []) if inbound.settings else []
+            clients.append(client.dict())
+            inbound.settings["clients"] = clients
+            await asyncio.to_thread(self.api.inbound.update, inbound_id, inbound)
 
-        clients = inbound.settings.get("clients", []) if inbound.settings else []
-        clients.append(client.dict())
-        inbound.settings["clients"] = clients
-
-        await asyncio.to_thread(self.api.inbound.update, inbound_id, inbound)
         return client_uuid, client
 
-    async def delete_client(self, inbound_id: int, client_uuid: str):
+    async def delete_client(self, client_uuid: str, inbound_ids: list[int]):
         await self._ensure_login()
-        await asyncio.to_thread(self.api.client.delete, inbound_id, client_uuid)
+        for inbound_id in inbound_ids:
+            try:
+                await asyncio.to_thread(self.api.client.delete, inbound_id, client_uuid)
+            except Exception:
+                pass
 
     async def update_client_expiry(
-        self, inbound_id: int, client_uuid: str, additional_days: int
+        self, client_uuid: str, additional_days: int, inbound_ids: list[int]
     ):
         await self._ensure_login()
-        inbound = await self.get_inbound(inbound_id)
-        if not inbound:
-            return
-
-        clients = inbound.settings.get("clients", []) if inbound.settings else []
-        for c in clients:
-            if c.get("id") == client_uuid:
-                current_expiry = c.get("expiryTime", 0)
-                now_ms = int(datetime.now().timestamp() * 1000)
-                if current_expiry > now_ms:
-                    new_expiry = current_expiry + additional_days * 86400000
-                else:
-                    new_expiry = now_ms + additional_days * 86400000
-                c["expiryTime"] = new_expiry
-                c["enable"] = True
-                break
-
-        inbound.settings["clients"] = clients
-        await asyncio.to_thread(self.api.inbound.update, inbound_id, inbound)
+        for inbound_id in inbound_ids:
+            inbound = await self.get_inbound(inbound_id)
+            if not inbound:
+                continue
+            clients = inbound.settings.get("clients", []) if inbound.settings else []
+            for c in clients:
+                if c.get("id") == client_uuid:
+                    current_expiry = c.get("expiryTime", 0)
+                    now_ms = int(datetime.now().timestamp() * 1000)
+                    if current_expiry > now_ms:
+                        new_expiry = current_expiry + additional_days * 86400000
+                    else:
+                        new_expiry = now_ms + additional_days * 86400000
+                    c["expiryTime"] = new_expiry
+                    c["enable"] = True
+                    break
+            inbound.settings["clients"] = clients
+            await asyncio.to_thread(self.api.inbound.update, inbound_id, inbound)
 
     async def get_client_traffic(self, client_uuid: str) -> dict:
         await self._ensure_login()
