@@ -534,16 +534,15 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if callback.from_user.id not in cfg.admin_ids:
             return
         cursor = await db.conn.execute(
-            "SELECT s.*, u.telegram_id, u.username FROM subscriptions s JOIN users u ON s.user_id = u.id ORDER BY s.created_at DESC LIMIT 50"
+            "SELECT s.*, u.telegram_id, u.username FROM subscriptions s JOIN users u ON s.user_id = u.id WHERE s.is_active = 1 ORDER BY s.created_at DESC LIMIT 50"
         )
         rows = await cursor.fetchall()
         if not rows:
-            await callback.message.edit_text("\u041d\u0435\u0442 \u043f\u043e\u0434\u043f\u0438\u0441\u043e\u043a.", reply_markup=admin_menu())
+            await callback.message.edit_text("\u041d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043f\u043e\u0434\u043f\u0438\u0441\u043e\u043a.", reply_markup=admin_menu())
             return
-        text = "\U0001f4cb \u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438:\n\n"
+        text = "\U0001f4cb \u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438:\n\n"
         for r in rows:
-            status = "\u2705" if r["is_active"] else "\u274c"
-            text += f"\u25b6 {r['username'] or r['telegram_id']} \u2014 {r['plan_name']} \u2014 {status}\n"
+            text += f"\u25b6 {r['username'] or r['telegram_id']} \u2014 {r['plan_name']}\n"
         await callback.message.edit_text(text, reply_markup=admin_menu())
 
     @router.callback_query(F.data == "admin:broadcast")
