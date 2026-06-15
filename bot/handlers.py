@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 async def _nav(callback: CallbackQuery, text: str, markup=None):
     await callback.answer()
-    await callback.message.answer(text, reply_markup=markup)
+    await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
+    await asyncio.sleep(1.5)
     try:
         await callback.message.delete()
     except Exception:
