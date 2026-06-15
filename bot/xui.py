@@ -18,7 +18,7 @@ class XUIManager:
 
     async def get_inbounds(self) -> list[Inbound]:
         await self._ensure_login()
-        return await asyncio.to_thread(self.api.inbound.list)
+        return await asyncio.to_thread(self.api.inbound.get_list)
 
     async def get_inbound(self, inbound_id: int) -> Optional[Inbound]:
         inbounds = await self.get_inbounds()
@@ -92,7 +92,10 @@ class XUIManager:
     async def get_client_traffic(self, client_uuid: str) -> dict:
         await self._ensure_login()
         try:
-            traffic = await asyncio.to_thread(self.api.client.get_traffic, client_uuid)
-            return traffic
+            clients = await asyncio.to_thread(self.api.client.get_traffic_by_id, client_uuid)
+            if clients:
+                c = clients[0]
+                return {"up": getattr(c, "up", 0), "down": getattr(c, "down", 0)}
         except Exception:
-            return {"up": 0, "down": 0}
+            pass
+        return {"up": 0, "down": 0}
