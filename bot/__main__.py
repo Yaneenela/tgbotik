@@ -36,8 +36,7 @@ async def main():
     has_yoo = bool(cfg.yookassa_shop_id and cfg.yookassa_secret_key)
     has_crypto = bool(cfg.crypto_bot_token)
     if not has_yoo and not has_crypto:
-        logger.error("At least one payment method required: YOOKASSA or CRYPTO_BOT_TOKEN")
-        return
+        logger.warning("No payment methods configured — bot will start without purchase functionality")
 
     db = Database()
     await db.connect()

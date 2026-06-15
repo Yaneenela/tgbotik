@@ -2,9 +2,10 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
-def main_menu() -> InlineKeyboardMarkup:
+def main_menu(has_payment: bool = True) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="\U0001f48e Купить подписку", callback_data="buy")
+    if has_payment:
+        builder.button(text="\U0001f48e Купить подписку", callback_data="buy")
     builder.button(text="\U0001f4cb Мои подписки", callback_data="my_subs")
     builder.button(text="\u2753 Помощь", callback_data="help")
     builder.adjust(1)

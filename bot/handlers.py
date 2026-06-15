@@ -173,7 +173,7 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
                         "\u0412\u0430\u0448\u0430 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0438\u0441\u0442\u0435\u043a\u043b\u0430. "
                         "\u0427\u0442\u043e\u0431\u044b \u043f\u0440\u043e\u0434\u043e\u043b\u0436\u0438\u0442\u044c \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u044c\u0441\u044f VPN, "
                         "\u043f\u0440\u0438\u043e\u0431\u0440\u0435\u0442\u0438\u0442\u0435 \u043d\u043e\u0432\u044b\u0439 \u0442\u0430\u0440\u0438\u0444.",
-                        reply_markup=main_menu(),
+                        reply_markup=main_menu(cfg.has_payment),
                     )
                 except Exception:
                     pass
@@ -194,7 +194,7 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
                         [InlineKeyboardButton(text="\u274c \u041d\u0435 \u0441\u0435\u0439\u0447\u0430\u0441", callback_data="menu")],
                     ])
                 else:
-                    markup = main_menu()
+                    markup = main_menu(cfg.has_payment)
                 try:
                     await bot.send_message(sub["telegram_id"], text, reply_markup=markup)
                     await db.mark_reminded(sub["id"])

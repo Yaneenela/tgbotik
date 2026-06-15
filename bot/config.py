@@ -28,6 +28,10 @@ class Config:
     plans: list[Plan] = field(default_factory=list)
 
     @property
+    def has_payment(self) -> bool:
+        return bool(self.yookassa_shop_id and self.yookassa_secret_key) or bool(self.crypto_bot_token)
+
+    @property
     def sub_url(self) -> str:
         return self.sub_url_template.rstrip("/")
 
