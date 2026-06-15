@@ -5,11 +5,13 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="\U0001f48e Купить подписку", callback_data="buy")
-    builder.button(text="\U0001f4cb Профиль", callback_data="my_subs")
+    builder.button(text="\U0001f464 Мой профиль", callback_data="my_subs")
     builder.button(text="\u2753 Помощь", callback_data="help")
     if is_admin:
         builder.button(text="\U0001f6e1 \u0410\u0434\u043c\u0438\u043d\u043a\u0430", callback_data="admin")
-    builder.adjust(1)
+        builder.adjust(1, 2, 1)
+    else:
+        builder.adjust(1, 2)
     return builder.as_markup()
 
 
