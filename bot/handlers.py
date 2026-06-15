@@ -3,7 +3,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -275,12 +275,16 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         tg_id = message.from_user.id
         user = await db.create_user(tg_id, message.from_user.username)
 
-        welcome = (
-            f"Добро пожаловать, {message.from_user.full_name}!\n\n"
-            f"Я помогу приобрести подписку VPN.\n"
-            f"Используйте кнопки ниже для навигации."
+        photo = FSInputFile("bot/start.jpg")
+        await message.answer_photo(
+            photo,
+            caption=(
+                f"Добро пожаловать, {message.from_user.full_name}!\n\n"
+                f"Я помогу приобрести подписку VPN.\n"
+                f"Используйте кнопки ниже для навигации."
+            ),
+            reply_markup=main_menu(cfg.has_payment, tg_id in cfg.admin_ids),
         )
-        await message.answer(welcome, reply_markup=main_menu(cfg.has_payment, tg_id in cfg.admin_ids))
 
         if tg_id in cfg.admin_ids and not user.get("is_admin"):
             await db.conn.execute("UPDATE users SET is_admin = 1 WHERE telegram_id = ?", (tg_id,))
