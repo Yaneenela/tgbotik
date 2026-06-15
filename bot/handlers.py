@@ -32,7 +32,7 @@ async def _process_payment(
             await xui.update_client_expiry(existing["uuid"], f"tg_{tg_id}", plan.days)
         except Exception as e:
             logger.error(f"3x-UI extend error: {e}")
-            await bot.send_message(tg_id, f"\u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0440\u043e\u0434\u043b\u0435\u043d\u0438\u044f: {e}")
+            await bot.send_message(tg_id, f"Ошибка продления: {e}")
             return
         await db.extend_expiry(existing["id"], plan.days)
         client_uuid = existing["uuid"]
@@ -47,7 +47,7 @@ async def _process_payment(
             )
         except Exception as e:
             logger.error(f"3x-UI create client error: {e}")
-            await bot.send_message(tg_id, f"\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430: {e}")
+            await bot.send_message(tg_id, f"Ошибка создания клиента: {e}")
             return
         await db.add_subscription(
             user_id=user["id"],
@@ -62,35 +62,35 @@ async def _process_payment(
     sub_url = cfg.make_sub_url(client_uuid)
     if is_renewal:
         msg = (
-            f"\u2705 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u043f\u0440\u043e\u0434\u043b\u0435\u043d\u0430!\n\n"
-            f"\U0001f4a1 \u0422\u0430\u0440\u0438\u0444: {plan.name}\n"
-            f"\U0001f4c5 \u0421\u0440\u043e\u043a: +{plan.days} \u0434\u043d\u0435\u0439\n\n"
-            f"\U0001f517 \u0421\u0441\u044b\u043b\u043a\u0430 \u043d\u0430 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443:\n"
+            f"✅ Подписка продлена!\n\n"
+            f"💡 Тариф: {plan.name}\n"
+            f"📅 Срок: +{plan.days} дней\n\n"
+            f"🔗 Ссылка на подписку:\n"
             f"<code>{sub_url}</code>"
         )
     else:
         msg = (
-            f"\u2705 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430!\n\n"
-            f"\U0001f4a1 \u0422\u0430\u0440\u0438\u0444: {plan.name}\n"
-            f"\U0001f4c5 \u0421\u0440\u043e\u043a: {plan.days} \u0434\u043d\u0435\u0439\n\n"
-            f"\U0001f517 \u0421\u0441\u044b\u043b\u043a\u0430 \u043d\u0430 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443:\n"
+            f"✅ Подписка активирована!\n\n"
+            f"💡 Тариф: {plan.name}\n"
+            f"📅 Срок: {plan.days} дней\n\n"
+            f"🔗 Ссылка на подписку:\n"
             f"<code>{sub_url}</code>\n\n"
-            f"\u0418\u043c\u043f\u043e\u0440\u0442\u0438\u0440\u0443\u0439\u0442\u0435 \u044d\u0442\u0443 \u0441\u0441\u044b\u043b\u043a\u0443 \u0432 \u0432\u0430\u0448\u0435\u043c VPN-\u043a\u043b\u0438\u0435\u043d\u0442\u0435."
+            f"Импортируйте эту ссылку в вашем VPN-клиенте."
         )
     try:
         await bot.send_message(tg_id, msg)
     except Exception as e:
         logger.error(f"Failed to send sub URL to {tg_id}: {e}")
 
-    label = "\u041d\u043e\u0432\u0430\u044f \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430" if not is_renewal else "\u041f\u0440\u043e\u0434\u043b\u0435\u043d\u0438\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438"
+    label = "Новая подписка" if not is_renewal else "Продление подписки"
     for admin_id in cfg.admin_ids:
         try:
             await bot.send_message(
                 admin_id,
-                f"\U0001f514 {label}!\n"
-                f"\U0001f464 {user['username'] or tg_id}\n"
-                f"\U0001f4a1 {plan.name} | {plan.price} \u0440\u0443\u0431\n"
-                f"\U0001f517 {sub_url}",
+                f"🔔 {label}!\n"
+                f"👤 {user['username'] or tg_id}\n"
+                f"💡 {plan.name} | {plan.price} руб\n"
+                f"🔗 {sub_url}",
                 disable_notification=True,
             )
         except Exception:
@@ -145,7 +145,7 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
                     try:
                         await bot.send_message(
                             row["telegram_id"],
-                            "\u2705 \u041e\u043f\u043b\u0430\u0442\u0430 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430! \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430.",
+                            "✅ Оплата подтверждена! Подписка активирована.",
                         )
                     except Exception:
                         pass
@@ -171,9 +171,9 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
                 try:
                     await bot.send_message(
                         sub["telegram_id"],
-                        "\u0412\u0430\u0448\u0430 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0438\u0441\u0442\u0435\u043a\u043b\u0430. "
-                        "\u0427\u0442\u043e\u0431\u044b \u043f\u0440\u043e\u0434\u043e\u043b\u0436\u0438\u0442\u044c \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u044c\u0441\u044f VPN, "
-                        "\u043f\u0440\u0438\u043e\u0431\u0440\u0435\u0442\u0438\u0442\u0435 \u043d\u043e\u0432\u044b\u0439 \u0442\u0430\u0440\u0438\u0444.",
+                        "Ваша подписка истекла. "
+                        "Чтобы продолжить пользоваться VPN, "
+                        "приобретите новый тариф.",
                         reply_markup=main_menu(cfg.has_payment, sub["telegram_id"] in cfg.admin_ids),
                     )
                 except Exception:
@@ -184,15 +184,15 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
                 expired_dt = datetime.fromisoformat(sub["expired_at"])
                 days_left = (expired_dt - now).days
                 text = (
-                    f"\u0412\u0430\u0448\u0430 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 {sub['plan_name']} "
-                    f"\u0438\u0441\u0442\u0435\u043a\u0430\u0435\u0442 \u0447\u0435\u0440\u0435\u0437 {days_left} \u0434\u043d.\n"
-                    f"\u0425\u043e\u0442\u0438\u0442\u0435 \u043f\u0440\u043e\u0434\u043b\u0438\u0442\u044c?"
+                    f"Ваша подписка {sub['plan_name']} "
+                    f"истекает через {days_left} дн.\n"
+                    f"Хотите продлить?"
                 )
                 plan_idx = next((i for i, p in enumerate(cfg.plans) if p.name == sub["plan_name"]), None)
                 if plan_idx is not None:
                     markup = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="\U0001f504 \u041f\u0440\u043e\u0434\u043b\u0438\u0442\u044c", callback_data=f"renew:{sub['id']}:{plan_idx}")],
-                        [InlineKeyboardButton(text="\u274c \u041d\u0435 \u0441\u0435\u0439\u0447\u0430\u0441", callback_data="menu")],
+                        [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"renew:{sub['id']}:{plan_idx}")],
+                        [InlineKeyboardButton(text="❌ Не сейчас", callback_data="menu")],
                     ])
                 else:
                     markup = main_menu(cfg.has_payment, sub["telegram_id"] in cfg.admin_ids)
@@ -252,9 +252,9 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         user = await db.create_user(tg_id, message.from_user.username)
 
         welcome = (
-            f"\u0414\u043e\u0431\u0440\u043e \u043f\u043e\u0436\u0430\u043b\u043e\u0432\u0430\u0442\u044c, {message.from_user.full_name}!\n\n"
-            f"\u042f \u043f\u043e\u043c\u043e\u0433\u0443 \u043f\u0440\u0438\u043e\u0431\u0440\u0435\u0441\u0442\u0438 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443 VPN.\n"
-            f"\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0438 \u043d\u0438\u0436\u0435 \u0434\u043b\u044f \u043d\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438."
+            f"Добро пожаловать, {message.from_user.full_name}!\n\n"
+            f"Я помогу приобрести подписку VPN.\n"
+            f"Используйте кнопки ниже для навигации."
         )
         await message.answer(welcome, reply_markup=main_menu(cfg.has_payment, tg_id in cfg.admin_ids))
 
@@ -266,16 +266,16 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_menu(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         await callback.message.edit_text(
-            "\u0413\u043b\u0430\u0432\u043d\u043e\u0435 \u043c\u0435\u043d\u044e:", reply_markup=main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids)
+            "Главное меню:", reply_markup=main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids)
         )
 
     @router.callback_query(F.data == "help")
     async def cb_help(callback: CallbackQuery):
         text = (
-            "\U0001f4ac \u041f\u043e\u043c\u043e\u0449\u044c\n\n"
-            "\U0001f48e \u041a\u0443\u043f\u0438\u0442\u044c \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443 \u2014 \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0430\u0440\u0438\u0444 \u0438 \u043e\u043f\u043b\u0430\u0442\u0438\u0442\u0435\n"
-            "\U0001f4cb \u041c\u043e\u0438 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438 \u2014 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043f\u043e\u0434\u043f\u0438\u0441\u043e\u043a\n\n"
-            "\u041f\u043e\u0441\u043b\u0435 \u043e\u043f\u043b\u0430\u0442\u044b \u0432\u044b \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u0435 \u0441\u0441\u044b\u043b\u043a\u0443 \u043d\u0430 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443."
+            "💬 Помощь\n\n"
+            "💎 Купить подписку — выберите тариф и оплатите\n"
+            "📋 Мои подписки — просмотр активных подписок\n\n"
+            "После оплаты вы получите ссылку на подписку."
         )
         await callback.message.edit_text(text, reply_markup=back_button())
 
@@ -283,11 +283,11 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_buy(callback: CallbackQuery):
         if not cfg.plans:
             await callback.message.edit_text(
-                "\u041d\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0445 \u0442\u0430\u0440\u0438\u0444\u043e\u0432.", reply_markup=back_button()
+                "Нет доступных тарифов.", reply_markup=back_button()
             )
             return
         await callback.message.edit_text(
-            "\U0001f48e \u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0430\u0440\u0438\u0444:",
+            "💎 Выберите тариф:",
             reply_markup=plans_keyboard(cfg.plans, "plan"),
         )
 
@@ -298,10 +298,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await state.update_data(plan_index=idx)
 
         text = (
-            f"\U0001f4a1 \u0422\u0430\u0440\u0438\u0444: {plan.name}\n"
-            f"\U0001f4b5 \u0426\u0435\u043d\u0430: {plan.price} \u0440\u0443\u0431\n"
-            f"\U0001f4c5 \u0421\u0440\u043e\u043a: {plan.days} \u0434\u043d\u0435\u0439\n\n"
-            f"\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043f\u043e\u0441\u043e\u0431 \u043e\u043f\u043b\u0430\u0442\u044b:"
+            f"💡 Тариф: {plan.name}\n"
+            f"💵 Цена: {plan.price} руб\n"
+            f"📅 Срок: {plan.days} дней\n\n"
+            f"Выберите способ оплаты:"
         )
         await callback.message.edit_text(
             text,
@@ -314,7 +314,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         idx = data.get("plan_index")
         if idx is None:
             await callback.message.edit_text(
-                "\u041e\u0448\u0438\u0431\u043a\u0430: \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0430\u0440\u0438\u0444 \u0437\u0430\u043d\u043e\u0432\u043e.",
+                "Ошибка: выберите тариф заново.",
                 reply_markup=back_button(),
             )
             return
@@ -323,12 +323,12 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         if not yoo:
             await callback.message.edit_text(
-                "\u041e\u043f\u043b\u0430\u0442\u0430 \u0447\u0435\u0440\u0435\u0437 \u042eKassa \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430.",
+                "Оплата через ЮKassa недоступна.",
                 reply_markup=back_button(),
             )
             return
 
-        await callback.message.edit_text("\U000023f3 \u0421\u043e\u0437\u0434\u0430\u0451\u043c \u043f\u043b\u0430\u0442\u0451\u0436...")
+        await callback.message.edit_text("⏳ Создаём платёж...")
 
         bot_username = cfg.bot_username or "bot"
         payment = await yoo.create_payment(
@@ -339,7 +339,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         if not payment:
             await callback.message.edit_text(
-                "\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f \u043f\u043b\u0430\u0442\u0435\u0436\u0430. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.",
+                "Ошибка создания платежа. Попробуйте позже.",
                 reply_markup=back_button(),
             )
             return
@@ -356,15 +356,15 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         await state.update_data(payment_id=payment.payment_id, plan_index=idx, payment_method="yookassa")
         await callback.message.edit_text(
-            f"\U0001f4b3 \u0421\u0447\u0451\u0442 \u0441\u043e\u0437\u0434\u0430\u043d!\n\n"
-            f"\u0421\u0443\u043c\u043c\u0430: {plan.price} \u0440\u0443\u0431\n"
-            f"\u0417\u0430: {plan.name}\n\n"
-            f"\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u043d\u0438\u0436\u0435 \u0434\u043b\u044f \u043e\u043f\u043b\u0430\u0442\u044b:",
+            f"💳 Счёт создан!\n\n"
+            f"Сумма: {plan.price} руб\n"
+            f"За: {plan.name}\n\n"
+            f"Нажмите кнопку ниже для оплаты:",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="\U0001f4b3 \u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c", url=payment.confirmation_url)],
-                    [InlineKeyboardButton(text="\u2705 \u042f \u043e\u043f\u043b\u0430\u0442\u0438\u043b", callback_data=f"check_pay:yoo:{payment.payment_id}:{idx}")],
-                    [InlineKeyboardButton(text="\u25c0 \u041d\u0430\u0437\u0430\u0434", callback_data="buy")],
+                    [InlineKeyboardButton(text="💳 Оплатить", url=payment.confirmation_url)],
+                    [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay:yoo:{payment.payment_id}:{idx}")],
+                    [InlineKeyboardButton(text="◀ Назад", callback_data="buy")],
                 ]
             ),
         )
@@ -375,7 +375,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         idx = data.get("plan_index")
         if idx is None:
             await callback.message.edit_text(
-                "\u041e\u0448\u0438\u0431\u043a\u0430: \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0430\u0440\u0438\u0444 \u0437\u0430\u043d\u043e\u0432\u043e.",
+                "Ошибка: выберите тариф заново.",
                 reply_markup=back_button(),
             )
             return
@@ -384,12 +384,12 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         if not crypto:
             await callback.message.edit_text(
-                "\u041e\u043f\u043b\u0430\u0442\u0430 \u0447\u0435\u0440\u0435\u0437 CryptoBot \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430.",
+                "Оплата через CryptoBot недоступна.",
                 reply_markup=back_button(),
             )
             return
 
-        await callback.message.edit_text("\U000023f3 \u0421\u043e\u0437\u0434\u0430\u0451\u043c \u0441\u0447\u0451\u0442...")
+        await callback.message.edit_text("⏳ Создаём счёт...")
 
         invoice = await crypto.create_invoice(
             amount=plan.price,
@@ -398,7 +398,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         if not invoice:
             await callback.message.edit_text(
-                "\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f \u0441\u0447\u0451\u0442\u0430. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.",
+                "Ошибка создания счёта. Попробуйте позже.",
                 reply_markup=back_button(),
             )
             return
@@ -415,15 +415,15 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         await state.update_data(payment_id=str(invoice.invoice_id), plan_index=idx, payment_method="crypto")
         await callback.message.edit_text(
-            f"\U0001f4b1 \u0421\u0447\u0451\u0442 \u0441\u043e\u0437\u0434\u0430\u043d!\n\n"
-            f"\u0421\u0443\u043c\u043c\u0430: {plan.price} \u0440\u0443\u0431\n"
-            f"\u0417\u0430: {plan.name}\n\n"
-            f"\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u043d\u0438\u0436\u0435 \u0434\u043b\u044f \u043e\u043f\u043b\u0430\u0442\u044b:",
+            f"💱 Счёт создан!\n\n"
+            f"Сумма: {plan.price} руб\n"
+            f"За: {plan.name}\n\n"
+            f"Нажмите кнопку ниже для оплаты:",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="\U0001f4b1 \u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c", url=invoice.pay_url)],
-                    [InlineKeyboardButton(text="\u2705 \u042f \u043e\u043f\u043b\u0430\u0442\u0438\u043b", callback_data=f"check_pay:crypto:{invoice.invoice_id}:{idx}")],
-                    [InlineKeyboardButton(text="\u25c0 \u041d\u0430\u0437\u0430\u0434", callback_data="buy")],
+                    [InlineKeyboardButton(text="💱 Оплатить", url=invoice.pay_url)],
+                    [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay:crypto:{invoice.invoice_id}:{idx}")],
+                    [InlineKeyboardButton(text="◀ Назад", callback_data="buy")],
                 ]
             ),
         )
@@ -455,19 +455,19 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             cursor2 = await db.conn.execute("SELECT changes()")
             rowcount = (await cursor2.fetchone())[0]
             if rowcount == 0:
-                await callback.answer("\u041f\u043b\u0430\u0442\u0435\u0436 \u0443\u0436\u0435 \u043e\u0431\u0440\u0430\u0431\u0430\u0442\u044b\u0432\u0430\u0435\u0442\u0441\u044f", show_alert=True)
+                await callback.answer("Платеж уже обрабатывается", show_alert=True)
                 return
             await _process_payment(cfg, db, xui, bot, tg_id, plan, pay_id)
             await db.update_transaction(pay_id, "completed")
             await callback.message.edit_text(
-                f"\u2705 \u041e\u043f\u043b\u0430\u0442\u0430 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430!\n\n"
-                f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430.",
+                f"✅ Оплата подтверждена!\n\n"
+                f"Подписка активирована.",
                 reply_markup=main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids),
             )
             await state.clear()
         else:
             await callback.answer(
-                "\U000023f3 \u041e\u043f\u043b\u0430\u0442\u0430 \u0435\u0449\u0451 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.",
+                "⏳ Оплата ещё не найдена. Попробуйте позже.",
                 show_alert=True,
             )
 
@@ -478,10 +478,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         plan = cfg.plans[int(plan_idx)]
         await state.update_data(plan_index=int(plan_idx))
         text = (
-            f"\U0001f4a1 \u0422\u0430\u0440\u0438\u0444: {plan.name}\n"
-            f"\U0001f4b5 \u0426\u0435\u043d\u0430: {plan.price} \u0440\u0443\u0431\n"
-            f"\U0001f4c5 \u0421\u0440\u043e\u043a: {plan.days} \u0434\u043d\u0435\u0439\n\n"
-            f"\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043f\u043e\u0441\u043e\u0431 \u043e\u043f\u043b\u0430\u0442\u044b:"
+            f"💡 Тариф: {plan.name}\n"
+            f"💵 Цена: {plan.price} руб\n"
+            f"📅 Срок: {plan.days} дней\n\n"
+            f"Выберите способ оплаты:"
         )
         await callback.message.edit_text(text, reply_markup=payment_methods_keyboard(bool(yoo), bool(crypto)))
 
@@ -490,44 +490,44 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         tg_id = callback.from_user.id
         user = await db.get_user(tg_id)
         if not user:
-            await callback.message.edit_text("\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u043d\u0430\u043f\u0438\u0448\u0438\u0442\u0435 /start", reply_markup=back_button())
+            await callback.message.edit_text("Сначала напишите /start", reply_markup=back_button())
             return
 
         subs = await db.get_user_subscriptions(user["id"])
         if not subs:
             await callback.message.edit_text(
-                "\u0423 \u0432\u0430\u0441 \u043d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043f\u043e\u0434\u043f\u0438\u0441\u043e\u043a.",
+                "У вас нет активных подписок.",
                 reply_markup=plans_keyboard(cfg.plans, "plan"),
             )
             return
 
-        text_parts = ["\U0001f4cb \u0412\u0430\u0448\u0438 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438:\n"]
+        text_parts = ["📋 Ваши подписки:\n"]
         for s in subs:
             expired = datetime.fromisoformat(s["expired_at"]) if s.get("expired_at") else None
-            expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "\u0431\u0435\u0441\u0441\u0440\u043e\u0447\u043d\u043e"
+            expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "бессрочно"
             sub_url = cfg.make_sub_url(s["uuid"])
             text_parts.append(
-                f"\n\u25b6 {s['plan_name']}\n"
-                f"\U0001f4c5 \u0414\u043e: {expired_str}\n"
-                f"\U0001f517 <code>{sub_url}</code>\n"
+                f"\n▶ {s['plan_name']}\n"
+                f"📅 До: {expired_str}\n"
+                f"🔗 <code>{sub_url}</code>\n"
             )
         await callback.message.edit_text("\n".join(text_parts), reply_markup=back_button())
 
     @router.callback_query(F.data == "admin")
     async def cb_admin(callback: CallbackQuery):
         if callback.from_user.id not in cfg.admin_ids:
-            await callback.answer("\u041d\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f\u0430", show_alert=True)
+            await callback.answer("Нет доступа", show_alert=True)
             return
-        await callback.message.edit_text("\U0001f6e1 \u0410\u0434\u043c\u0438\u043d-\u043f\u0430\u043d\u0435\u043b\u044c:", reply_markup=admin_menu())
+        await callback.message.edit_text("🛡 Админ-панель:", reply_markup=admin_menu())
 
     @router.callback_query(F.data == "admin:users")
     async def cb_admin_users(callback: CallbackQuery):
         if callback.from_user.id not in cfg.admin_ids:
             return
         users = await db.get_all_users()
-        text = f"\U0001f465 \u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u0438 ({len(users)}):\n\n"
+        text = f"👥 Пользователи ({len(users)}):\n\n"
         for u in users[:50]:
-            text += f"\u25b6 {u['username'] or 'no username'} (ID: {u['telegram_id']})\n"
+            text += f"▶ {u['username'] or 'no username'} (ID: {u['telegram_id']})\n"
         await callback.message.edit_text(text, reply_markup=admin_menu())
 
     @router.callback_query(F.data == "admin:subs")
@@ -539,11 +539,11 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         )
         rows = await cursor.fetchall()
         if not rows:
-            await callback.message.edit_text("\u041d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043f\u043e\u0434\u043f\u0438\u0441\u043e\u043a.", reply_markup=admin_menu())
+            await callback.message.edit_text("Нет активных подписок.", reply_markup=admin_menu())
             return
-        text = "\U0001f4cb \u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438:\n\n"
+        text = "📋 Активные подписки:\n\n"
         for r in rows:
-            text += f"\u25b6 {r['username'] or r['telegram_id']} \u2014 {r['plan_name']}\n"
+            text += f"▶ {r['username'] or r['telegram_id']} — {r['plan_name']}\n"
         await callback.message.edit_text(text, reply_markup=admin_menu())
 
     @router.callback_query(F.data == "admin:broadcast")
@@ -552,7 +552,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         await state.set_state(AdminStates.broadcast_text)
         await callback.message.edit_text(
-            "\U0001f4e8 \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0442\u0435\u043a\u0441\u0442 \u0434\u043b\u044f \u0440\u0430\u0441\u0441\u044b\u043b\u043a\u0438:",
+            "📨 Введите текст для рассылки:",
             reply_markup=back_button(),
         )
 
@@ -562,7 +562,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         text = message.text.strip()
         if not text:
-            await message.answer("\u0422\u0435\u043a\u0441\u0442 \u043d\u0435 \u043c\u043e\u0436\u0435\u0442 \u0431\u044b\u0442\u044c \u043f\u0443\u0441\u0442\u044b\u043c.")
+            await message.answer("Текст не может быть пустым.")
             return
         users = await db.get_all_users()
         sent = 0
@@ -574,7 +574,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                 pass
         await state.clear()
         await message.answer(
-            f"\u2705 \u0420\u0430\u0441\u0441\u044b\u043b\u043a\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u0430. \u041e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043e: {sent}/{len(users)}",
+            f"✅ Рассылка завершена. Отправлено: {sent}/{len(users)}",
             reply_markup=admin_menu(),
         )
 
@@ -584,7 +584,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         await state.set_state(AdminStates.grant_user_id)
         await callback.message.edit_text(
-            "\U0001f464 \u0412\u0432\u0435\u0434\u0438\u0442\u0435 Telegram ID \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f:",
+            "👤 Введите Telegram ID пользователя:",
             reply_markup=back_button(),
         )
 
@@ -595,7 +595,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         try:
             tg_id = int(message.text.strip())
         except ValueError:
-            await message.answer("\u041d\u0435\u0432\u0435\u0440\u043d\u044b\u0439 ID. \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0447\u0438\u0441\u043b\u043e.")
+            await message.answer("Неверный ID. Введите число.")
             return
         user = await db.get_user(tg_id)
         if not user:
@@ -603,8 +603,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await state.update_data(grant_tg_id=tg_id)
         await state.set_state(AdminStates.grant_plan)
         await message.answer(
-            f"\u2705 \u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c \u043d\u0430\u0439\u0434\u0435\u043d (ID: {tg_id}).\n"
-            f"\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0430\u0440\u0438\u0444:",
+            f"✅ Пользователь найден (ID: {tg_id}).\n"
+            f"Выберите тариф:",
             reply_markup=plans_keyboard(cfg.plans, "grant_plan"),
         )
 
@@ -620,7 +620,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await _process_payment(cfg, db, xui, bot, tg_id, plan, f"grant_{tg_id}_{idx}")
         await state.clear()
         await callback.message.edit_text(
-            f"\u2705 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 {plan.name} \u0432\u044b\u0434\u0430\u043d\u0430 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044e {tg_id}.",
+            f"✅ Подписка {plan.name} выдана пользователю {tg_id}.",
             reply_markup=admin_menu(),
         )
 
@@ -631,16 +631,16 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         subs = await db.get_all_active_subs()
         if not subs:
             await callback.message.edit_text(
-                "\u041d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043f\u043e\u0434\u043f\u0438\u0441\u043e\u043a.",
+                "Нет активных подписок.",
                 reply_markup=admin_menu(),
             )
             return
-        text = "\U0001f4dd \u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438:\n\n"
+        text = "📝 Активные подписки:\n\n"
         for s in subs:
             expired = datetime.fromisoformat(s["expired_at"]) if s.get("expired_at") else None
             expired_str = expired.strftime("%d.%m.%Y") if expired else "?"
             label = s["username"] or str(s["telegram_id"])
-            text += f"\u25b6 {label} \u2014 {s['plan_name']} \u2014 \u0434\u043e {expired_str}\n"
+            text += f"▶ {label} — {s['plan_name']} — до {expired_str}\n"
         await callback.message.edit_text(text, reply_markup=admin_subs_list_keyboard(subs))
 
     @router.callback_query(F.data.startswith("admin_sub:"))
@@ -651,7 +651,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         sub = await db.get_subscription(sub_id)
         if not sub:
             await callback.message.edit_text(
-                "\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430.",
+                "Подписка не найдена.",
                 reply_markup=admin_menu(),
             )
             return
@@ -663,10 +663,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "?"
         sub_url = cfg.make_sub_url(sub["uuid"])
         text = (
-            f"\U0001f464 {user_name} (ID: {user_tg_id})\n"
-            f"\U0001f4a1 {sub['plan_name']}\n"
-            f"\U0001f4c5 \u0414\u043e: {expired_str}\n"
-            f"\U0001f517 <code>{sub_url}</code>"
+            f"👤 {user_name} (ID: {user_tg_id})\n"
+            f"💡 {sub['plan_name']}\n"
+            f"📅 До: {expired_str}\n"
+            f"🔗 <code>{sub_url}</code>"
         )
         await callback.message.edit_text(text, reply_markup=admin_sub_actions_keyboard(sub_id))
 
@@ -678,8 +678,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await state.update_data(extend_sub_id=sub_id)
         await state.set_state(AdminStates.extend_days)
         await callback.message.edit_text(
-            "\U0001f4c5 \u041d\u0430 \u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0434\u043d\u0435\u0439 \u043f\u0440\u043e\u0434\u043b\u0438\u0442\u044c?\n"
-            "\u041d\u0430\u043f\u0438\u0448\u0438\u0442\u0435 \u0447\u0438\u0441\u043b\u043e:"
+            "📅 На сколько дней продлить?\n"
+            "Напишите число:"
         )
 
     @router.message(AdminStates.extend_days)
@@ -691,14 +691,14 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             if days <= 0:
                 raise ValueError
         except ValueError:
-            await message.answer("\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043f\u043e\u043b\u043e\u0436\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0435 \u0447\u0438\u0441\u043b\u043e.")
+            await message.answer("Введите положительное число.")
             return
 
         data = await state.get_data()
         sub_id = data.get("extend_sub_id")
         sub = await db.get_subscription(sub_id)
         if not sub:
-            await message.answer("\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430.")
+            await message.answer("Подписка не найдена.")
             await state.clear()
             return
 
@@ -708,14 +708,14 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             email = f"tg_{user_row['telegram_id']}" if user_row else f"tg_{sub['user_id']}"
             await xui.update_client_expiry(sub["uuid"], email, days)
         except Exception as e:
-            await message.answer(f"\u041e\u0448\u0438\u0431\u043a\u0430 3x-UI: {e}")
+            await message.answer(f"Ошибка 3x-UI: {e}")
             await state.clear()
             return
 
         await db.update_sub_expiry(sub_id, days)
         await state.clear()
         await message.answer(
-            f"\u2705 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 #{sub_id} \u043f\u0440\u043e\u0434\u043b\u0435\u043d\u0430 \u043d\u0430 {days} \u0434\u043d\u0435\u0439.",
+            f"✅ Подписка #{sub_id} продлена на {days} дней.",
             reply_markup=admin_menu(),
         )
 
@@ -725,11 +725,11 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         sub_id = int(callback.data.split(":")[1])
         await callback.message.edit_text(
-            "\u274c \u0422\u043e\u0447\u043d\u043e \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443?\n"
-            "\u041a\u043b\u0438\u0435\u043d\u0442 \u0431\u0443\u0434\u0435\u0442 \u0443\u0434\u0430\u043b\u0435\u043d \u0438\u0437 3x-UI \u0438 \u0431\u0430\u0437\u044b \u0434\u0430\u043d\u043d\u044b\u0445.",
+            "❌ Точно удалить подписку?\n"
+            "Клиент будет удален из 3x-UI и базы данных.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="\u2705 \u0414\u0430, \u0443\u0434\u0430\u043b\u0438\u0442\u044c", callback_data=f"sub_delete_confirm:{sub_id}")],
-                [InlineKeyboardButton(text="\u25c0 \u041d\u0435\u0442", callback_data=f"admin_sub:{sub_id}")],
+                [InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"sub_delete_confirm:{sub_id}")],
+                [InlineKeyboardButton(text="◀ Нет", callback_data=f"admin_sub:{sub_id}")],
             ]),
         )
 
@@ -740,64 +740,64 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         sub_id = int(callback.data.split(":")[1])
         sub = await db.get_subscription(sub_id)
         if not sub:
-            await callback.message.edit_text("\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430.", reply_markup=admin_menu())
+            await callback.message.edit_text("Подписка не найдена.", reply_markup=admin_menu())
             return
 
         try:
             await xui.delete_client(sub["uuid"], cfg.xui_inbound_ids)
         except Exception as e:
             await callback.message.edit_text(
-                f"\u041e\u0448\u0438\u0431\u043a\u0430 3x-UI: {e}",
+                f"Ошибка 3x-UI: {e}",
                 reply_markup=admin_menu(),
             )
             return
 
         await db.deactivate_sub(sub_id)
         await callback.message.edit_text(
-            f"\u2705 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 #{sub_id} \u0443\u0434\u0430\u043b\u0435\u043d\u0430.",
+            f"✅ Подписка #{sub_id} удалена.",
             reply_markup=admin_menu(),
         )
 
     @router.message(Command("admin"))
     async def cmd_admin(message: Message):
         if message.from_user.id not in cfg.admin_ids:
-            await message.answer("\u041d\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f\u0430")
+            await message.answer("Нет доступа")
             return
-        await message.answer("\U0001f6e1 \u0410\u0434\u043c\u0438\u043d-\u043f\u0430\u043d\u0435\u043b\u044c:", reply_markup=admin_menu())
+        await message.answer("🛡 Админ-панель:", reply_markup=admin_menu())
 
     @router.message(Command("my"))
     async def cmd_my(message: Message):
         tg_id = message.from_user.id
         user = await db.get_user(tg_id)
         if not user:
-            await message.answer("\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u043d\u0430\u043f\u0438\u0448\u0438\u0442\u0435 /start")
+            await message.answer("Сначала напишите /start")
             return
         subs = await db.get_user_subscriptions(user["id"])
         if not subs:
             await message.answer(
-                "\u0423 \u0432\u0430\u0441 \u043d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043f\u043e\u0434\u043f\u0438\u0441\u043e\u043a.",
+                "У вас нет активных подписок.",
                 reply_markup=plans_keyboard(cfg.plans, "plan"),
             )
             return
         for s in subs:
             expired = datetime.fromisoformat(s["expired_at"]) if s.get("expired_at") else None
-            expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "\u0431\u0435\u0441\u0441\u0440\u043e\u0447\u043d\u043e"
+            expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "бессрочно"
             sub_url = cfg.make_sub_url(s["uuid"])
             await message.answer(
-                f"\u25b6 {s['plan_name']}\n"
-                f"\U0001f4c5 \u0414\u043e: {expired_str}\n"
-                f"\U0001f517 <code>{sub_url}</code>"
+                f"▶ {s['plan_name']}\n"
+                f"📅 До: {expired_str}\n"
+                f"🔗 <code>{sub_url}</code>"
             )
 
     @router.message(Command("plans"))
     async def cmd_plans(message: Message):
         if not cfg.plans:
-            await message.answer("\u041d\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0445 \u0442\u0430\u0440\u0438\u0444\u043e\u0432.")
+            await message.answer("Нет доступных тарифов.")
             return
-        text = "\U0001f48e \u0414\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435 \u0442\u0430\u0440\u0438\u0444\u044b:\n\n"
+        text = "💎 Доступные тарифы:\n\n"
         for i, p in enumerate(cfg.plans):
-            text += f"{i+1}. {p.name} \u2014 {p.price} \u0440\u0443\u0431 \u2014 {p.days} \u0434\u043d.\n"
-        text += "\n\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u00ab\u041a\u0443\u043f\u0438\u0442\u044c \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443\u00bb \u0434\u043b\u044f \u043f\u043e\u043a\u0443\u043f\u043a\u0438."
+            text += f"{i+1}. {p.name} — {p.price} руб — {p.days} дн.\n"
+        text += "\nИспользуйте кнопку «Купить подписку» для покупки."
         await message.answer(text, reply_markup=main_menu(cfg.has_payment, message.from_user.id in cfg.admin_ids))
 
     @router.message(Command("broadcast"))
@@ -806,7 +806,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         text = message.text.replace("/broadcast", "", 1).strip()
         if not text:
-            await message.answer("\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u0442\u0435\u043a\u0441\u0442: /broadcast \u0421\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435")
+            await message.answer("Укажите текст: /broadcast Сообщение")
             return
         users = await db.get_all_users()
         sent = 0
@@ -816,12 +816,12 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                 sent += 1
             except Exception:
                 pass
-        await message.answer(f"\u0420\u0430\u0441\u0441\u044b\u043b\u043a\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u0430. \u041e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043e: {sent}/{len(users)}")
+        await message.answer(f"Рассылка завершена. Отправлено: {sent}/{len(users)}")
 
     @router.message(StateFilter(None))
     async def fallback(message: Message):
         await message.answer(
-            "\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0438 \u043c\u0435\u043d\u044e \u0438\u043b\u0438 /start",
+            "Используйте кнопки меню или /start",
             reply_markup=main_menu(cfg.has_payment, message.from_user.id in cfg.admin_ids),
         )
 
