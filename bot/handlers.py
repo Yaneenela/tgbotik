@@ -279,28 +279,46 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     @router.callback_query(F.data == "menu")
     async def cb_menu(callback: CallbackQuery, state: FSMContext):
         await state.clear()
-        await callback.message.edit_text(
+        await callback.answer()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
             "Главное меню:", reply_markup=main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids)
         )
 
     @router.callback_query(F.data == "help")
     async def cb_help(callback: CallbackQuery):
+        await callback.answer()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
         text = (
             "💬 Помощь\n\n"
             "💎 Купить подписку — выберите тариф и оплатите\n"
             "📋 Мои подписки — просмотр активных подписок\n\n"
             "После оплаты вы получите ссылку на подписку."
         )
-        await callback.message.edit_text(text, reply_markup=back_button())
+        await callback.message.answer(text, reply_markup=back_button())
 
     @router.callback_query(F.data == "buy")
     async def cb_buy(callback: CallbackQuery):
         if not cfg.plans:
-            await callback.message.edit_text(
-                "Нет доступных тарифов.", reply_markup=back_button()
-            )
+            await callback.answer()
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.message.answer("Нет доступных тарифов.", reply_markup=back_button())
             return
-        await callback.message.edit_text(
+        await callback.answer()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
             "💎 Выберите тариф:",
             reply_markup=plans_keyboard(cfg.plans, "plan"),
         )
@@ -539,12 +557,22 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         tg_id = callback.from_user.id
         user = await db.get_user(tg_id)
         if not user:
-            await callback.message.edit_text("Сначала напишите /start", reply_markup=back_button())
+            await callback.answer()
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.message.answer("Сначала напишите /start", reply_markup=back_button())
             return
 
         subs = await db.get_user_subscriptions(user["id"])
         if not subs:
-            await callback.message.edit_text(
+            await callback.answer()
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.message.answer(
                 "У вас нет активных подписок.",
                 reply_markup=plans_keyboard(cfg.plans, "plan"),
             )
@@ -566,7 +594,12 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         builder.button(text="📱 Изменить устройства", callback_data="edit_devices")
         builder.button(text="◀ Назад", callback_data="menu")
         builder.adjust(1)
-        await callback.message.edit_text("\n".join(text_parts), reply_markup=builder.as_markup())
+        await callback.answer()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer("\n".join(text_parts), reply_markup=builder.as_markup())
 
     @router.callback_query(F.data == "edit_devices")
     async def cb_edit_devices(callback: CallbackQuery):
@@ -632,7 +665,12 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if callback.from_user.id not in cfg.admin_ids:
             await callback.answer("Нет доступа", show_alert=True)
             return
-        await callback.message.edit_text("🛡 Админ-панель:", reply_markup=admin_menu())
+        await callback.answer()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer("🛡 Админ-панель:", reply_markup=admin_menu())
 
     @router.callback_query(F.data == "admin:users")
     async def cb_admin_users(callback: CallbackQuery):

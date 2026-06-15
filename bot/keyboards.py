@@ -25,7 +25,7 @@ def plans_keyboard(plans: list, prefix: str = "plan") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for i, plan in enumerate(plans):
         builder.button(
-            text=f"{plan.days} дней | Безлимит ♾ | {plan.price} руб",
+            text=f"{plan.days} дней | ♾ Безлимит | {plan.price} руб",
             callback_data=f"{prefix}:{i}",
         )
     builder.button(text="◀ Назад", callback_data="menu")
@@ -38,9 +38,8 @@ def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str
     for i in range(1, 11):
         mark = " ✅" if i == current else ""
         builder.button(text=f"{i}{mark}", callback_data=f"{prefix}:{i}")
-    builder.adjust(5)
     builder.button(text="◀ Назад", callback_data=back_cb)
-    builder.adjust(5, 1)
+    builder.adjust(5)
     return builder.as_markup()
 
 
