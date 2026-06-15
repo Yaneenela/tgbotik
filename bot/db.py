@@ -45,7 +45,8 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL REFERENCES users(id),
                 amount REAL NOT NULL,
-                currency TEXT DEFAULT 'USD',
+                currency TEXT DEFAULT 'RUB',
+                plan_name TEXT,
                 payment_system TEXT,
                 payment_id TEXT,
                 status TEXT DEFAULT 'pending',
@@ -112,13 +113,14 @@ class Database:
         currency: str,
         payment_system: str,
         payment_id: str = None,
+        plan_name: str = None,
         status: str = "pending",
     ):
         await self.conn.execute(
             """INSERT INTO transactions
-               (user_id, amount, currency, payment_system, payment_id, status)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (user_id, amount, currency, payment_system, payment_id, status),
+               (user_id, amount, currency, payment_system, payment_id, plan_name, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, amount, currency, payment_system, payment_id, plan_name, status),
         )
         await self.conn.commit()
 

@@ -1,7 +1,6 @@
 import os
 import json
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -15,16 +14,16 @@ class Plan:
 @dataclass
 class Config:
     bot_token: str
+    bot_username: str
     admin_ids: list[int]
     xui_url: str
     xui_username: str
     xui_password: str
     xui_inbound_id: int
     sub_url_template: str
-    crypto_bot_token: str = ""
-    usdt_address: str = ""
-    usdt_network: str = "TRC20"
-    currency: str = "USD"
+    yookassa_shop_id: str = ""
+    yookassa_secret_key: str = ""
+    currency: str = "RUB"
     plans: list[Plan] = field(default_factory=list)
 
     @property
@@ -41,15 +40,15 @@ def load_config() -> Config:
 
     return Config(
         bot_token=os.getenv("BOT_TOKEN", ""),
+        bot_username=os.getenv("BOT_USERNAME", ""),
         admin_ids=[int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()],
         xui_url=os.getenv("XUI_URL", ""),
         xui_username=os.getenv("XUI_USERNAME", ""),
         xui_password=os.getenv("XUI_PASSWORD", ""),
         xui_inbound_id=int(os.getenv("XUI_INBOUND_ID", "1")),
         sub_url_template=os.getenv("SUB_URL_TEMPLATE", ""),
-        crypto_bot_token=os.getenv("CRYPTO_BOT_TOKEN", ""),
-        usdt_address=os.getenv("USDT_ADDRESS", ""),
-        usdt_network=os.getenv("USDT_NETWORK", "TRC20"),
-        currency=os.getenv("CURRENCY", "USD"),
+        yookassa_shop_id=os.getenv("YOOKASSA_SHOP_ID", ""),
+        yookassa_secret_key=os.getenv("YOOKASSA_SECRET_KEY", ""),
+        currency=os.getenv("CURRENCY", "RUB"),
         plans=plans,
     )

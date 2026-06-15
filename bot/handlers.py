@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from datetime import datetime
 
 from aiogram import Router, F, Bot
@@ -9,77 +10,103 @@ from aiogram.fsm.context import FSMContext
 from bot.config import Config, Plan
 from bot.db import Database
 from bot.xui import XUIManager
-from bot.payments import CryptoBot
+from bot.payments import YooKassa
 from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu
 
 logger = logging.getLogger(__name__)
 
 
-def create_router(cfg: Config, db: Database, xui: XUIManager):
-    router = Router()
-    crypto = CryptoBot(cfg.crypto_bot_token) if cfg.crypto_bot_token else None
-
-    async def notify_admin(bot: Bot, text: str):
-        for admin_id in cfg.admin_ids:
-            try:
-                await bot.send_message(admin_id, text, disable_notification=True)
-            except Exception:
-                pass
-
-    async def process_payment(
-        tg_id: int,
-        plan: Plan,
-        payment_id: int,
-        payment_system: str,
-        bot: Bot,
-    ):
-        user = await db.get_user(tg_id)
-        if not user:
-            return
-
+async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
+    await asyncio.sleep(10)
+    while True:
         try:
-            client_uuid, client = await xui.create_client(
-                inbound_id=cfg.xui_inbound_id,
-                email=f"tg_{tg_id}",
-                days=plan.days,
-                traffic_gb=plan.traffic_gb,
+            yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key)
+            cursor = await db.conn.execute(
+                "SELECT t.*, u.telegram_id FROM transactions t JOIN users u ON t.user_id = u.id "
+                "WHERE t.status = 'pending' AND t.payment_system = 'yookassa'"
             )
+            rows = await cursor.fetchall()
+            for row in rows:
+                payment = await yoo.check_payment(row["payment_id"])
+                if payment and payment.status == "succeeded":
+                    plan_name = row.get("plan_name", "")
+                    plan = next((p for p in cfg.plans if p.name == plan_name), None)
+                    if plan:
+                        await _process_payment(cfg, db, xui, bot, row["telegram_id"], plan, row["payment_id"])
+                        await db.update_transaction(row["payment_id"], "completed")
+                        try:
+                            await bot.send_message(
+                                row["telegram_id"],
+                                f"\u2705 \u041e\u043f\u043b\u0430\u0442\u0430 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430! "
+                                f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430.",
+                            )
+                        except Exception:
+                            pass
         except Exception as e:
-            logger.error(f"3x-UI create client error: {e}")
-            await bot.send_message(tg_id, f"\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430: {e}")
-            return
+            logger.error(f"Payment checker error: {e}")
+        await asyncio.sleep(30)
 
-        await db.add_subscription(
-            user_id=user["id"],
-            plan_name=plan.name,
-            uuid_str=client_uuid,
+
+async def _process_payment(
+    cfg: Config, db: Database, xui: XUIManager, bot: Bot,
+    tg_id: int, plan: Plan, payment_id: str,
+):
+    user = await db.get_user(tg_id)
+    if not user:
+        return
+    try:
+        client_uuid, client = await xui.create_client(
             inbound_id=cfg.xui_inbound_id,
+            email=f"tg_{tg_id}",
             days=plan.days,
             traffic_gb=plan.traffic_gb,
         )
-        await db.update_transaction(str(payment_id), "completed")
+    except Exception as e:
+        logger.error(f"3x-UI create client error: {e}")
+        await bot.send_message(tg_id, f"\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430: {e}")
+        return
 
-        sub_url = cfg.make_sub_url(client_uuid)
-        msg = (
-            f"\u2705 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430!\n\n"
-            f"\U0001f4a1 \u0422\u0430\u0440\u0438\u0444: {plan.name}\n"
-            f"\U0001f4c5 \u0421\u0440\u043e\u043a: {plan.days} \u0434\u043d\u0435\u0439\n\n"
-            f"\U0001f517 \u0421\u0441\u044b\u043b\u043a\u0430 \u043d\u0430 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443:\n"
-            f"<code>{sub_url}</code>\n\n"
-            f"\u0418\u043c\u043f\u043e\u0440\u0442\u0438\u0440\u0443\u0439\u0442\u0435 \u044d\u0442\u0443 \u0441\u0441\u044b\u043b\u043a\u0443 \u0432 \u0432\u0430\u0448\u0435\u043c VPN-\u043a\u043b\u0438\u0435\u043d\u0442\u0435."
-        )
+    await db.add_subscription(
+        user_id=user["id"],
+        plan_name=plan.name,
+        uuid_str=client_uuid,
+        inbound_id=cfg.xui_inbound_id,
+        days=plan.days,
+        traffic_gb=plan.traffic_gb,
+    )
+
+    sub_url = cfg.make_sub_url(client_uuid)
+    msg = (
+        f"\u2705 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430!\n\n"
+        f"\U0001f4a1 \u0422\u0430\u0440\u0438\u0444: {plan.name}\n"
+        f"\U0001f4c5 \u0421\u0440\u043e\u043a: {plan.days} \u0434\u043d\u0435\u0439\n\n"
+        f"\U0001f517 \u0421\u0441\u044b\u043b\u043a\u0430 \u043d\u0430 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443:\n"
+        f"<code>{sub_url}</code>\n\n"
+        f"\u0418\u043c\u043f\u043e\u0440\u0442\u0438\u0440\u0443\u0439\u0442\u0435 \u044d\u0442\u0443 \u0441\u0441\u044b\u043b\u043a\u0443 \u0432 \u0432\u0430\u0448\u0435\u043c VPN-\u043a\u043b\u0438\u0435\u043d\u0442\u0435."
+    )
+    try:
+        await bot.send_message(tg_id, msg)
+    except Exception as e:
+        logger.error(f"Failed to send sub URL to {tg_id}: {e}")
+
+    for admin_id in cfg.admin_ids:
         try:
-            await bot.send_message(tg_id, msg)
-        except Exception as e:
-            logger.error(f"Failed to send sub URL to {tg_id}: {e}")
+            await bot.send_message(
+                admin_id,
+                f"\U0001f514 \u041d\u043e\u0432\u0430\u044f \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430!\n"
+                f"\U0001f464 {user['username'] or tg_id}\n"
+                f"\U0001f4a1 {plan.name} | {plan.price} \u0440\u0443\u0431\n"
+                f"\U0001f517 {sub_url}",
+                disable_notification=True,
+            )
+        except Exception:
+            pass
 
-        await notify_admin(
-            bot,
-            f"\U0001f514 \u041d\u043e\u0432\u0430\u044f \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430!\n"
-            f"\U0001f464 {user['username'] or tg_id}\n"
-            f"\U0001f4a1 {plan.name} | ${plan.price}\n"
-            f"\U0001f517 {sub_url}",
-        )
+
+def create_router(cfg: Config, db: Database, xui: XUIManager):
+    router = Router()
+
+    yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key) if cfg.yookassa_shop_id and cfg.yookassa_secret_key else None
 
     @router.message(Command("start"))
     async def cmd_start(message: Message):
@@ -134,38 +161,18 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         traffic = f"{plan.traffic_gb} \u0413\u0411" if plan.traffic_gb > 0 else "\u0411\u0435\u0437\u043b\u0438\u043c\u0438\u0442"
         text = (
             f"\U0001f4a1 \u0422\u0430\u0440\u0438\u0444: {plan.name}\n"
-            f"\U0001f4b5 \u0426\u0435\u043d\u0430: ${plan.price}\n"
+            f"\U0001f4b5 \u0426\u0435\u043d\u0430: {plan.price} \u0440\u0443\u0431\n"
             f"\U0001f4be \u0422\u0440\u0430\u0444\u0438\u043a: {traffic}\n"
             f"\U0001f4c5 \u0421\u0440\u043e\u043a: {plan.days} \u0434\u043d\u0435\u0439\n\n"
             f"\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043f\u043e\u0441\u043e\u0431 \u043e\u043f\u043b\u0430\u0442\u044b:"
         )
-        has_crypto = bool(cfg.crypto_bot_token)
-        has_usdt = bool(cfg.usdt_address)
-        await callback.message.edit_text(text, reply_markup=payment_methods_keyboard(has_crypto, has_usdt))
-
-    @router.callback_query(F.data == "pay:usdt")
-    async def cb_pay_usdt(callback: CallbackQuery, state: FSMContext):
-        data = await state.get_data()
-        idx = data.get("plan_index")
-        if idx is None:
-            await callback.message.edit_text(
-                "\u041e\u0448\u0438\u0431\u043a\u0430: \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0430\u0440\u0438\u0444 \u0437\u0430\u043d\u043e\u0432\u043e.",
-                reply_markup=back_button(),
-            )
-            return
-        plan = cfg.plans[idx]
-        text = (
-            f"\U0001f4b0 \u041e\u043f\u043b\u0430\u0442\u0430 USDT {cfg.usdt_network}\n\n"
-            f"\u0421\u0443\u043c\u043c\u0430: ${plan.price} (\u2248 {plan.price} USDT)\n\n"
-            f"\u0410\u0434\u0440\u0435\u0441 \u0434\u043b\u044f \u043e\u043f\u043b\u0430\u0442\u044b:\n"
-            f"<code>{cfg.usdt_address}</code>\n\n"
-            f"\u0421\u0435\u0442\u044c: {cfg.usdt_network}\n\n"
-            f"\u041f\u043e\u0441\u043b\u0435 \u043e\u043f\u043b\u0430\u0442\u044b \u043e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0447\u0435\u043a \u0430\u0434\u043c\u0438\u043d\u0443 \u0438\u043b\u0438 \u043e\u0436\u0438\u0434\u0430\u0439\u0442\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u044f."
+        await callback.message.edit_text(
+            text,
+            reply_markup=payment_methods_keyboard(bool(yoo)),
         )
-        await callback.message.edit_text(text, reply_markup=back_button())
 
-    @router.callback_query(F.data == "pay:crypto")
-    async def cb_pay_crypto(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    @router.callback_query(F.data == "pay:yookassa")
+    async def cb_pay_yookassa(callback: CallbackQuery, state: FSMContext, bot: Bot):
         data = await state.get_data()
         idx = data.get("plan_index")
         if idx is None:
@@ -177,24 +184,25 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         plan = cfg.plans[idx]
         tg_id = callback.from_user.id
 
-        if not crypto:
+        if not yoo:
             await callback.message.edit_text(
-                "\u041e\u043f\u043b\u0430\u0442\u0430 \u0447\u0435\u0440\u0435\u0437 CryptoBot \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430.",
+                "\u041e\u043f\u043b\u0430\u0442\u0430 \u0447\u0435\u0440\u0435\u0437 \u042eKassa \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430.",
                 reply_markup=back_button(),
             )
             return
 
-        await callback.message.edit_text("\U000023f3 \u0421\u043e\u0437\u0434\u0430\u0451\u043c \u0441\u0447\u0451\u0442...")
+        await callback.message.edit_text("\U000023f3 \u0421\u043e\u0437\u0434\u0430\u0451\u043c \u043f\u043b\u0430\u0442\u0451\u0436...")
 
-        invoice = await crypto.create_invoice(
+        bot_username = cfg.bot_username or "bot"
+        payment = await yoo.create_payment(
             amount=plan.price,
-            currency=cfg.currency,
-            description=f"{plan.name} | @{callback.from_user.username or tg_id}",
+            description=plan.name,
+            return_url=f"https://t.me/{bot_username}",
         )
 
-        if not invoice:
+        if not payment:
             await callback.message.edit_text(
-                "\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f \u0441\u0447\u0451\u0442\u0430. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.",
+                "\u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f \u043f\u043b\u0430\u0442\u0435\u0436\u0430. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.",
                 reply_markup=back_button(),
             )
             return
@@ -204,20 +212,21 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             user_id=user["id"],
             amount=plan.price,
             currency=cfg.currency,
-            payment_system="cryptobot",
-            payment_id=str(invoice.invoice_id),
+            payment_system="yookassa",
+            payment_id=payment.payment_id,
+            plan_name=plan.name,
         )
 
-        await state.update_data(payment_id=invoice.invoice_id, plan_index=idx)
+        await state.update_data(payment_id=payment.payment_id, plan_index=idx)
         await callback.message.edit_text(
-            f"\U0001f4b1 \u0421\u0447\u0451\u0442 \u0441\u043e\u0437\u0434\u0430\u043d!\n\n"
-            f"\u0421\u0443\u043c\u043c\u0430: ${plan.price}\n"
+            f"\U0001f4b3 \u0421\u0447\u0451\u0442 \u0441\u043e\u0437\u0434\u0430\u043d!\n\n"
+            f"\u0421\u0443\u043c\u043c\u0430: {plan.price} \u0440\u0443\u0431\n"
             f"\u0417\u0430: {plan.name}\n\n"
             f"\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u043d\u0438\u0436\u0435 \u0434\u043b\u044f \u043e\u043f\u043b\u0430\u0442\u044b:",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="\U0001f4b1 \u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c", url=invoice.pay_url)],
-                    [InlineKeyboardButton(text="\u2705 \u042f \u043e\u043f\u043b\u0430\u0442\u0438\u043b", callback_data=f"check_pay:{invoice.invoice_id}:{idx}")],
+                    [InlineKeyboardButton(text="\U0001f4b3 \u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c", url=payment.confirmation_url)],
+                    [InlineKeyboardButton(text="\u2705 \u042f \u043e\u043f\u043b\u0430\u0442\u0438\u043b", callback_data=f"check_pay:{payment.payment_id}:{idx}")],
                     [InlineKeyboardButton(text="\u25c0 \u041d\u0430\u0437\u0430\u0434", callback_data="buy")],
                 ]
             ),
@@ -226,24 +235,25 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     @router.callback_query(F.data.startswith("check_pay:"))
     async def cb_check_payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
         parts = callback.data.split(":")
-        _, pay_id_str, idx_str = parts
-        pay_id = int(pay_id_str)
+        _, pay_id, idx_str = parts
         idx = int(idx_str)
         plan = cfg.plans[idx]
         tg_id = callback.from_user.id
 
-        if not crypto:
+        if not yoo:
             await callback.answer("\u041f\u043b\u0430\u0442\u0435\u0436\u043d\u0430\u044f \u0441\u0438\u0441\u0442\u0435\u043c\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430", show_alert=True)
             return
 
-        invoice = await crypto.check_invoice(pay_id)
-        if invoice and invoice.status == "paid":
-            await process_payment(tg_id, plan, pay_id, "cryptobot", bot)
+        payment = await yoo.check_payment(pay_id)
+        if payment and payment.status == "succeeded":
+            await _process_payment(cfg, db, xui, bot, tg_id, plan, pay_id)
+            await db.update_transaction(pay_id, "completed")
             await callback.message.edit_text(
                 f"\u2705 \u041e\u043f\u043b\u0430\u0442\u0430 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0430!\n\n"
                 f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u0430.",
                 reply_markup=main_menu(),
             )
+            await state.clear()
         else:
             await callback.answer(
                 "\U000023f3 \u041e\u043f\u043b\u0430\u0442\u0430 \u0435\u0449\u0451 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.",
@@ -353,7 +363,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         text = "\U0001f48e \u0414\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435 \u0442\u0430\u0440\u0438\u0444\u044b:\n\n"
         for i, p in enumerate(cfg.plans):
             traffic = f"{p.traffic_gb} \u0413\u0411" if p.traffic_gb > 0 else "\u0411\u0435\u0437\u043b\u0438\u043c\u0438\u0442"
-            text += f"{i+1}. {p.name} \u2014 ${p.price} \u2014 {traffic} \u2014 {p.days} \u0434\u043d.\n"
+            text += f"{i+1}. {p.name} \u2014 {p.price} \u0440\u0443\u0431 \u2014 {traffic} \u2014 {p.days} \u0434\u043d.\n"
         text += "\n\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u043a\u043d\u043e\u043f\u043a\u0443 \u00ab\u041a\u0443\u043f\u0438\u0442\u044c \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443\u00bb \u0434\u043b\u044f \u043f\u043e\u043a\u0443\u043f\u043a\u0438."
         await message.answer(text, reply_markup=main_menu())
 

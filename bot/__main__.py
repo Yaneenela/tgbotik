@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from bot.config import load_config
 from bot.db import Database
 from bot.xui import XUIManager
-from bot.handlers import create_router
+from bot.handlers import create_router, check_pending_payments
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -33,6 +33,9 @@ async def main():
     if not cfg.xui_url or not cfg.xui_username or not cfg.xui_password:
         logger.error("XUI_URL, XUI_USERNAME, XUI_PASSWORD are required")
         return
+    if not cfg.yookassa_shop_id or not cfg.yookassa_secret_key:
+        logger.error("YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY are required")
+        return
 
     db = Database()
     await db.connect()
@@ -49,6 +52,8 @@ async def main():
     bot = Bot(token=cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp.include_router(create_router(cfg, db, xui))
+
+    asyncio.create_task(check_pending_payments(cfg, db, xui, bot))
 
     logger.info("Starting bot polling...")
     await dp.start_polling(bot, db=db, cfg=cfg, xui=xui)
