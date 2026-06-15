@@ -158,6 +158,7 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
     await asyncio.sleep(30)
     while True:
         try:
+            await sync_subscriptions(cfg, db, xui)
             now = datetime.now()
             expired = await db.get_expired_subs()
             for sub in expired:
