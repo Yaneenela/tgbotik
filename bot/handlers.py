@@ -513,7 +513,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         text = "\U0001f4cb \u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438:\n\n"
         for r in rows:
-            text += f"\u25b6 {r['username'] or r['telegram_id']} \u2014 {r['plan_name']} \u2014 {'\u2705' if r['is_active'] else '\u274c'}\n"
+            status = "\u2705" if r["is_active"] else "\u274c"
+            text += f"\u25b6 {r['username'] or r['telegram_id']} \u2014 {r['plan_name']} \u2014 {status}\n"
         await callback.message.edit_text(text, reply_markup=admin_menu())
 
     @router.callback_query(F.data == "admin:broadcast")
