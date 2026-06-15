@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 
 async def _nav(callback: CallbackQuery, text: str, markup=None):
     await callback.answer()
+    await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
     try:
         await callback.message.delete()
     except Exception:
         pass
-    await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
 
 
 def calc_total_price(plan: Plan, device_count: int) -> float:
@@ -304,7 +304,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         guides = {
             "android": (
                 "📱 **Android — Happ**\n\n"
-                "1. Скачайте Happ из Google Play или с оф. сайта hiddify.com\n"
+                "1. Скачайте Happ из Google Play или с GitHub: github.com/Happ-proxy\n"
                 "2. Откройте приложение\n"
                 "3. Нажмите / → **Добавить из буфера**\n"
                 "4. Скопируйте ссылку подписки из профиля бота\n"
@@ -322,7 +322,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             ),
             "desktop": (
                 "💻 **Windows / MacOS — Happ**\n\n"
-                "1. Скачайте Happ для вашей ОС с hiddify.com\n"
+                "1. Скачайте Happ для вашей ОС с GitHub: github.com/Happ-proxy\n"
                 "2. Установите и запустите\n"
                 "3. Нажмите / → **Добавить из буфера обмена**\n"
                 "4. Скопируйте ссылку подписки из профиля бота\n"
