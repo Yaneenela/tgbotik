@@ -35,7 +35,7 @@ def plans_keyboard(plans: list, prefix: str = "plan") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for i, plan in enumerate(plans):
         builder.button(
-            text=f"{plan.days} дней | ♾ Безлимит | {plan.price} руб",
+            text=f"💎 {plan.days} дн | ♾ Безлимит | {plan.price} ₽",
             callback_data=f"{prefix}:{i}",
         )
     builder.button(text="◀ Назад", callback_data="menu")
