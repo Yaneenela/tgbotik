@@ -860,31 +860,34 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         idx = int(callback.data.split(":")[1])
         plan = cfg.plans[idx]
-        await state.update_data(grant_plan_index=idx)
+        data = await state.get_data()
+        tg_id = data.get("grant_tg_id")
+        if tg_id is None:
+            await callback.message.edit_text("Ошибка: начните выдачу заново.", reply_markup=admin_menu())
+            await state.clear()
+            return
+        builder = InlineKeyboardBuilder()
+        for i in range(1, 11):
+            builder.button(text=str(i), callback_data=f"grant_d:{idx}:{tg_id}:{i}")
+        builder.button(text="◀ Назад", callback_data="admin")
+        builder.adjust(5)
         text = (
             f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
             f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
         )
-        await callback.message.edit_text(
-            text,
-            reply_markup=device_count_keyboard(),
-        )
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
 
-    @router.callback_query(F.data.startswith("grant_device:"))
+    @router.callback_query(F.data.startswith("grant_d:"))
     async def cb_admin_grant_device(callback: CallbackQuery, state: FSMContext, bot: Bot):
         if callback.from_user.id not in cfg.admin_ids:
             return
-        device_count = int(callback.data.split(":")[1])
-        data = await state.get_data()
-        idx = data.get("grant_plan_index")
-        if idx is None:
-            await callback.message.edit_text("Ошибка: выберите тариф заново.", reply_markup=admin_menu())
-            await state.clear()
-            return
+        parts = callback.data.split(":")
+        idx = int(parts[1])
+        tg_id = int(parts[2])
+        device_count = int(parts[3])
         plan = cfg.plans[idx]
-        tg_id = data["grant_tg_id"]
 
         await _process_payment(cfg, db, xui, bot, tg_id, plan, f"grant_{tg_id}_{idx}", device_count)
         await state.clear()
