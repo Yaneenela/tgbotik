@@ -443,6 +443,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"💳 Счёт создан!\n\n"
             f"Сумма: {total_price} руб\n"
             f"За: {plan.name} ({device_count} уст.)\n\n"
+            f"⏳ У вас есть 5 минут на оплату.\n"
             f"Нажмите кнопку ниже для оплаты:",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -517,6 +518,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"Сумма: {total_price} руб  (~{usdt_amount} USDT)\n"
             f"Курс: 1 USDT ≈ {usdt_rate:.0f} руб\n"
             f"За: {plan.name} ({device_count} уст.)\n\n"
+            f"⏳ У вас есть 5 минут на оплату.\n"
             f"Нажмите кнопку ниже для оплаты:",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
