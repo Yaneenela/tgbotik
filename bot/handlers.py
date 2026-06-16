@@ -773,6 +773,111 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
 
         tg_id = callback.from_user.id
+
+        # Decrease — free
+        if new_count < current:
+            await db.update_sub_device_count(sub_id, new_count)
+            try:
+                remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - datetime.now()).days) if sub.get("expired_at") else 0
+                await xui.update_client_expiry(sub["uuid"], f"tg_{tg_id}", remaining_days, new_count)
+            except Exception as e:
+                await callback.message.edit_text(f"Ошибка 3x-UI: {e}", reply_markup=back_button())
+                return
+            await callback.message.edit_text(
+                f"✅ Лимит уменьшен до {new_count} устройств.",
+                reply_markup=device_mgmt_keyboard(sub_id, new_count),
+            )
+            return
+
+        # Increase — need to pay (if payment available)
+        extra = new_count - current
+        plan = next((p for p in cfg.plans if p.name == sub["plan_name"]), None)
+        price = extra * (plan.extra_device_price if plan else 50)
+
+        if not crypto:
+            await db.update_sub_device_count(sub_id, new_count)
+            try:
+                remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - datetime.now()).days) if sub.get("expired_at") else 0
+                await xui.update_client_expiry(sub["uuid"], f"tg_{tg_id}", remaining_days, new_count)
+            except Exception as e:
+                await callback.message.edit_text(f"Ошибка 3x-UI: {e}", reply_markup=back_button())
+                return
+            await callback.message.edit_text(
+                f"✅ Лимит увеличен до {new_count} устройств.",
+                reply_markup=device_mgmt_keyboard(sub_id, new_count),
+            )
+            return
+
+        await callback.message.edit_text("⏳ Создаём счёт...")
+
+        try:
+            usdt_rate = await crypto.get_usdt_rate()
+        except Exception:
+            usdt_rate = 0
+        if usdt_rate <= 0:
+            await callback.message.edit_text("Ошибка получения курса.", reply_markup=back_button())
+            return
+
+        usdt_amount = round(price / usdt_rate, 2)
+        invoice = await crypto.create_invoice(
+            amount=usdt_amount,
+            description=f"+{extra} уст. | {sub['plan_name']} | @{callback.from_user.username or tg_id}",
+        )
+        if not invoice:
+            await callback.message.edit_text("Ошибка создания счёта.", reply_markup=back_button())
+            return
+
+        user = await db.get_user(tg_id)
+        await db.add_transaction(
+            user_id=user["id"],
+            amount=price,
+            currency=cfg.currency,
+            payment_system="cryptobot",
+            payment_id=str(invoice.invoice_id),
+            plan_name=f"upgrade_{sub_id}",
+        )
+
+        await callback.message.edit_text(
+            f"💱 Для увеличения лимита оплатите:\n\n"
+            f"➕ +{extra} устройств(а) (→{new_count})\n"
+            f"💵 {price} руб (~{usdt_amount} USDT)\n"
+            f"Курс: 1 USDT ≈ {usdt_rate:.0f} руб\n\n"
+            f"⏳ У вас есть 5 минут на оплату.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💱 Оплатить", url=invoice.pay_url)],
+                [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"upgrade_pay:{invoice.invoice_id}:{sub_id}:{new_count}")],
+                [InlineKeyboardButton(text="◀ Назад", callback_data=f"edit_dev_sub:{sub_id}")],
+            ]),
+        )
+
+    @router.callback_query(F.data.startswith("upgrade_pay:"))
+    async def cb_upgrade_pay_check(callback: CallbackQuery, bot: Bot):
+        parts = callback.data.split(":")
+        invoice_id = int(parts[1])
+        sub_id = int(parts[2])
+        new_count = int(parts[3])
+        tg_id = callback.from_user.id
+
+        if not crypto:
+            await callback.answer("Платёжная система недоступна.", show_alert=True)
+            return
+
+        invoice = await crypto.check_invoice(invoice_id)
+        if not invoice or invoice.status != "paid":
+            await callback.answer("⏳ Оплата ещё не найдена. Попробуйте позже.", show_alert=True)
+            return
+
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
+            return
+
+        await db.conn.execute(
+            "UPDATE transactions SET status = 'processing' WHERE payment_id = ? AND status = 'pending'",
+            (str(invoice_id),),
+        )
+        await db.conn.commit()
+
         await db.update_sub_device_count(sub_id, new_count)
         try:
             remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - datetime.now()).days) if sub.get("expired_at") else 0
@@ -780,8 +885,15 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         except Exception as e:
             await callback.message.edit_text(f"Ошибка 3x-UI: {e}", reply_markup=back_button())
             return
+
+        await db.conn.execute(
+            "UPDATE transactions SET status = 'completed' WHERE payment_id = ?",
+            (str(invoice_id),),
+        )
+        await db.conn.commit()
+
         await callback.message.edit_text(
-            f"✅ Лимит изменён на {new_count} устройств.",
+            f"✅ Оплата подтверждена! Лимит увеличен до {new_count} устройств.",
             reply_markup=device_mgmt_keyboard(sub_id, new_count),
         )
 
