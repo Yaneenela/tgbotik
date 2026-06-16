@@ -477,8 +477,20 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         await callback.message.edit_text("⏳ Создаём счёт...")
 
+        try:
+            usdt_rate = await crypto.get_usdt_rate()
+        except Exception:
+            usdt_rate = 0
+        if usdt_rate <= 0:
+            await callback.message.edit_text(
+                "Ошибка получения курса. Попробуйте позже.",
+                reply_markup=back_button(),
+            )
+            return
+
+        usdt_amount = round(total_price / usdt_rate, 2)
         invoice = await crypto.create_invoice(
-            amount=total_price,
+            amount=usdt_amount,
             description=f"{plan.name} ({device_count} уст.) | @{callback.from_user.username or tg_id}",
         )
 
@@ -502,7 +514,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await state.update_data(payment_id=str(invoice.invoice_id), plan_index=idx, payment_method="crypto")
         await callback.message.edit_text(
             f"💱 Счёт создан!\n\n"
-            f"Сумма: {total_price} руб\n"
+            f"Сумма: {total_price} руб  (~{usdt_amount} USDT)\n"
+            f"Курс: 1 USDT ≈ {usdt_rate:.0f} руб\n"
             f"За: {plan.name} ({device_count} уст.)\n\n"
             f"Нажмите кнопку ниже для оплаты:",
             reply_markup=InlineKeyboardMarkup(

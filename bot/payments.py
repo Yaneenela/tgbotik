@@ -1,5 +1,6 @@
 import uuid
 import base64
+import time
 from datetime import datetime, timedelta, timezone
 import httpx
 from dataclasses import dataclass
@@ -92,6 +93,22 @@ class CryptoBot:
         self.token = token
         self.base = "https://pay.crypt.bot/api"
         self.headers = {"Crypto-Pay-API-Token": token}
+        self._rate_cache: tuple[float, float] | None = None
+
+    async def get_usdt_rate(self) -> float:
+        now = time.time()
+        if self._rate_cache and now - self._rate_cache[1] < 300:
+            return self._rate_cache[0]
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": "tether", "vs_currencies": "rub"},
+                timeout=10,
+            )
+            data = resp.json()
+            rate = float(data["tether"]["rub"])
+            self._rate_cache = (rate, now)
+            return rate
 
     async def create_invoice(
         self, amount: float, description: str = ""
