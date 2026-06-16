@@ -52,7 +52,10 @@ def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str
     if confirm_cb:
         builder.button(text="💳 Перейти к оплате", callback_data=confirm_cb)
     builder.button(text="◀ Назад", callback_data=back_cb)
-    builder.adjust(4 if confirm_cb else 5)
+    if confirm_cb:
+        builder.adjust(4, 4, 1, 1)
+    else:
+        builder.adjust(5)
     return builder.as_markup()
 
 

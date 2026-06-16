@@ -17,10 +17,23 @@ from bot.keyboards import main_menu, back_button, plans_keyboard, payment_method
 
 logger = logging.getLogger(__name__)
 
+_nav_last: dict[int, int] = {}
 
 async def _nav(callback: CallbackQuery, text: str, markup=None):
     await callback.answer()
-    await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
+    msg = await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
+    chat_id = callback.from_user.id
+    prev = _nav_last.pop(chat_id, None)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    if prev:
+        try:
+            await callback.bot.delete_message(chat_id, prev)
+        except Exception:
+            pass
+    _nav_last[chat_id] = msg.message_id
 
 
 def calc_total_price(plan: Plan, device_count: int) -> float:
