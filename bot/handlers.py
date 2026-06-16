@@ -385,7 +385,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         )
         await callback.message.edit_text(
             text,
-            reply_markup=payment_methods_keyboard(bool(yoo), bool(crypto)),
+            reply_markup=device_count_keyboard(prefix="grant_device", back_cb="admin"),
         )
 
     @router.callback_query(F.data == "pay:yookassa")
