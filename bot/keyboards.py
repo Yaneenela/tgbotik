@@ -68,13 +68,13 @@ def device_mgmt_keyboard(sub_id: int, current: int = 3, ips: list[str] = None) -
     return builder.as_markup()
 
 
-def payment_methods_keyboard(has_yookassa: bool, has_crypto: bool) -> InlineKeyboardMarkup:
+def payment_methods_keyboard(has_yookassa: bool, has_crypto: bool, back_cb: str = "buy") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if has_yookassa:
         builder.button(text="💳 Карта / СБП", callback_data="pay:yookassa")
     if has_crypto:
         builder.button(text="💱 CryptoBot", callback_data="pay:crypto")
-    builder.button(text="◀ Назад", callback_data="buy")
+    builder.button(text="◀ Назад", callback_data=back_cb)
     builder.adjust(1)
     return builder.as_markup()
 

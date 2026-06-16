@@ -20,12 +20,11 @@ logger = logging.getLogger(__name__)
 
 async def _nav(callback: CallbackQuery, text: str, markup=None):
     await callback.answer()
-    await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
-    await asyncio.sleep(1.5)
     try:
         await callback.message.delete()
     except Exception:
         pass
+    await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
 
 
 def calc_total_price(plan: Plan, device_count: int) -> float:
@@ -357,10 +356,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
         )
-        await callback.message.edit_text(
-            text,
-            reply_markup=device_count_keyboard(),
-        )
+        await _nav(callback, text, device_count_keyboard())
 
     @router.callback_query(F.data.startswith("device:"))
     async def cb_select_device(callback: CallbackQuery, state: FSMContext):
@@ -381,14 +377,37 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
             f"📱 Устройств: {device_count}\n"
             f"💵 Сумма: {total} руб\n\n"
+            f"Проверьте заказ и нажмите кнопку для оплаты."
+        )
+        builder = InlineKeyboardBuilder()
+        builder.button(text="💳 Перейти к оплате", callback_data="go_pay")
+        builder.button(text="◀ Назад", callback_data="buy")
+        builder.adjust(1)
+        await _nav(callback, text, builder.as_markup())
+
+    @router.callback_query(F.data == "go_pay")
+    async def cb_go_pay(callback: CallbackQuery, state: FSMContext):
+        data = await state.get_data()
+        device_count = data.get("device_count")
+        idx = data.get("plan_index")
+        if idx is None or device_count is None:
+            await callback.message.edit_text(
+                "Ошибка: начните заказ заново.",
+                reply_markup=back_button(),
+            )
+            await state.clear()
+            return
+        plan = cfg.plans[idx]
+        total = calc_total_price(plan, device_count)
+        text = (
+            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"📱 Устройств: {device_count}\n"
+            f"💵 Сумма: {total} руб\n\n"
             f"Выберите способ оплаты:"
         )
         has_yoo = bool(cfg.yookassa_shop_id and cfg.yookassa_secret_key)
         has_cry = bool(cfg.crypto_bot_token)
-        await callback.message.edit_text(
-            text,
-            reply_markup=payment_methods_keyboard(has_yoo, has_cry),
-        )
+        await _nav(callback, text, payment_methods_keyboard(has_yoo, has_cry))
 
     @router.callback_query(F.data == "pay:yookassa")
     async def cb_pay_yookassa(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -589,7 +608,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
         )
-        await callback.message.edit_text(text, reply_markup=device_count_keyboard(current_devices))
+        await _nav(callback, text, device_count_keyboard(current_devices))
 
     @router.callback_query(F.data == "my_subs")
     async def cb_my_subs(callback: CallbackQuery):
@@ -639,7 +658,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             builder.button(text=label, callback_data=f"edit_dev_sub:{s['id']}")
         builder.button(text="◀ Назад", callback_data="my_subs")
         builder.adjust(1)
-        await callback.message.edit_text("📱 Выберите подписку для изменения:", reply_markup=builder.as_markup())
+        await _nav(callback, "📱 Выберите подписку для изменения:", builder.as_markup())
 
     @router.callback_query(F.data.startswith("edit_dev_sub:"))
     async def cb_edit_dev_sub(callback: CallbackQuery):
@@ -656,7 +675,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"📱 Лимит устройств: {current}\n"
             f"🔌 Подключено: {len(ips)}/{current}\n"
         )
-        await callback.message.edit_text(text, reply_markup=device_mgmt_keyboard(sub_id, current, ips))
+        await _nav(callback, text, device_mgmt_keyboard(sub_id, current, ips))
 
     @router.callback_query(F.data.startswith("edit_dev_count:"))
     async def cb_edit_dev_count(callback: CallbackQuery):
@@ -756,7 +775,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"Текущий лимит: {current}\n\n"
             f"Выберите новое количество устройств:"
         )
-        await callback.message.edit_text(text, reply_markup=device_count_keyboard(current, f"upgrade_dev:{sub_id}", f"edit_dev_sub:{sub_id}"))
+        await _nav(callback, text, device_count_keyboard(current, f"upgrade_dev:{sub_id}", f"edit_dev_sub:{sub_id}"))
 
     @router.callback_query(F.data.startswith("upgrade_dev:"))
     async def cb_upgrade_dev_confirm(callback: CallbackQuery, bot: Bot):
@@ -912,7 +931,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         text = f"👥 Пользователи ({len(users)}):\n\n"
         for u in users[:50]:
             text += f"▶ {u['username'] or 'no username'} (ID: {u['telegram_id']})\n"
-        await callback.message.edit_text(text, reply_markup=admin_menu())
+        await _nav(callback, text, admin_menu())
 
     @router.callback_query(F.data == "admin:subs")
     async def cb_admin_subs(callback: CallbackQuery):
@@ -923,22 +942,19 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         )
         rows = await cursor.fetchall()
         if not rows:
-            await callback.message.edit_text("Нет активных подписок.", reply_markup=admin_menu())
+            await _nav(callback, "Нет активных подписок.", admin_menu())
             return
         text = "📋 Активные подписки:\n\n"
         for r in rows:
             text += f"▶ {r['username'] or r['telegram_id']} — {r['plan_name']}\n"
-        await callback.message.edit_text(text, reply_markup=admin_menu())
+        await _nav(callback, text, admin_menu())
 
     @router.callback_query(F.data == "admin:broadcast")
     async def cb_admin_broadcast(callback: CallbackQuery, state: FSMContext):
         if callback.from_user.id not in cfg.admin_ids:
             return
         await state.set_state(AdminStates.broadcast_text)
-        await callback.message.edit_text(
-            "📨 Введите текст для рассылки:",
-            reply_markup=back_button(),
-        )
+        await _nav(callback, "📨 Введите текст для рассылки:", back_button())
 
     @router.message(AdminStates.broadcast_text)
     async def msg_admin_broadcast(message: Message, bot: Bot, state: FSMContext):
@@ -969,10 +985,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if callback.from_user.id not in cfg.admin_ids:
             return
         await state.set_state(AdminStates.grant_user_id)
-        await callback.message.edit_text(
-            "👤 Введите Telegram ID пользователя:",
-            reply_markup=back_button(),
-        )
+        await _nav(callback, "👤 Введите Telegram ID пользователя:", back_button())
 
     @router.message(AdminStates.grant_user_id)
     async def msg_admin_grant_user(message: Message, state: FSMContext):
@@ -1019,7 +1032,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
         )
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        await _nav(callback, text, builder.as_markup())
 
     @router.callback_query(F.data.startswith("grant_d:"))
     async def cb_admin_grant_device(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -1049,10 +1062,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         subs = await db.get_all_active_subs()
         if not subs:
-            await callback.message.edit_text(
-                "Нет активных подписок.",
-                reply_markup=admin_menu(),
-            )
+            await _nav(callback, "Нет активных подписок.", admin_menu())
             return
         text = "📝 Активные подписки:\n\n"
         for s in subs:
@@ -1060,7 +1070,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             expired_str = expired.strftime("%d.%m.%Y") if expired else "?"
             label = s["username"] or str(s["telegram_id"])
             text += f"▶ {label} — {s['plan_name']} — до {expired_str}\n"
-        await callback.message.edit_text(text, reply_markup=admin_subs_list_keyboard(subs))
+        await _nav(callback, text, admin_subs_list_keyboard(subs))
 
     @router.callback_query(F.data.startswith("admin_sub:"))
     async def cb_admin_sub_select(callback: CallbackQuery):
@@ -1089,7 +1099,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"📱 Устройств: {devices}\n"
             f"🔗 <code>{sub_url}</code>"
         )
-        await callback.message.edit_text(text, reply_markup=admin_sub_actions_keyboard(sub_id))
+        await _nav(callback, text, admin_sub_actions_keyboard(sub_id))
 
     @router.callback_query(F.data.startswith("sub_extend:"))
     async def cb_admin_sub_extend(callback: CallbackQuery, state: FSMContext):
@@ -1098,10 +1108,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         sub_id = int(callback.data.split(":")[1])
         await state.update_data(extend_sub_id=sub_id)
         await state.set_state(AdminStates.extend_days)
-        await callback.message.edit_text(
-            "📅 На сколько дней продлить?\n"
-            "Напишите число:"
-        )
+        await _nav(callback, "📅 На сколько дней продлить?\nНапишите число:")
 
     @router.message(AdminStates.extend_days)
     async def msg_admin_extend(message: Message, state: FSMContext):
@@ -1145,10 +1152,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if callback.from_user.id not in cfg.admin_ids:
             return
         sub_id = int(callback.data.split(":")[1])
-        await callback.message.edit_text(
+        await _nav(callback,
             "❌ Точно удалить подписку?\n"
             "Клиент будет удален из 3x-UI и базы данных.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"sub_delete_confirm:{sub_id}")],
                 [InlineKeyboardButton(text="◀ Нет", callback_data=f"admin_sub:{sub_id}")],
             ]),
@@ -1174,9 +1181,9 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
 
         await db.deactivate_sub(sub_id)
-        await callback.message.edit_text(
+        await _nav(callback,
             f"✅ Подписка #{sub_id} удалена.",
-            reply_markup=admin_menu(),
+            admin_menu(),
         )
 
     @router.message(Command("admin"))
