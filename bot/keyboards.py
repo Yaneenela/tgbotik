@@ -9,9 +9,7 @@ def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboar
     builder.button(text="❓ Помощь", callback_data="help")
     if is_admin:
         builder.button(text="🛡 Админка", callback_data="admin")
-        builder.adjust(1, 2, 1)
-    else:
-        builder.adjust(1, 2)
+    builder.adjust(1)
     return builder.as_markup()
 
 
