@@ -651,13 +651,12 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         current = sub.get("device_count", 3)
         email = f"tg_{callback.from_user.id}"
         ips = await xui.get_client_ips(email)
-        ips_str = ", ".join(ips) if ips else "нет"
         text = (
             f"💡 {sub['plan_name']}\n"
             f"📱 Лимит устройств: {current}\n"
-            f"🔌 Подключено IP: {ips_str}\n"
+            f"🔌 Подключено: {len(ips)}/{current}\n"
         )
-        await callback.message.edit_text(text, reply_markup=device_mgmt_keyboard(sub_id, current))
+        await callback.message.edit_text(text, reply_markup=device_mgmt_keyboard(sub_id, current, ips))
 
     @router.callback_query(F.data.startswith("edit_dev_count:"))
     async def cb_edit_dev_count(callback: CallbackQuery):
@@ -674,8 +673,32 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             reply_markup=edit_device_keyboard(sub_id, current),
         )
 
-    @router.callback_query(F.data.startswith("edit_dev_reset:"))
-    async def cb_edit_dev_reset(callback: CallbackQuery):
+    @router.callback_query(F.data.startswith("dsc_ip:"))
+    async def cb_disconnect_ip(callback: CallbackQuery):
+        parts = callback.data.split(":")
+        sub_id = int(parts[1])
+        ip_idx = int(parts[2])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
+            return
+        email = f"tg_{callback.from_user.id}"
+        ips = await xui.get_client_ips(email)
+        if ip_idx >= len(ips):
+            await callback.answer("IP уже не активен.", show_alert=True)
+            return
+        target_ip = ips[ip_idx]
+        await callback.message.edit_text(
+            f"🔌 Отключить устройство {target_ip}?\n\n"
+            f"⚠️ Все активные подключения будут сброшены.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Да, отключить", callback_data=f"dsc_ip_ok:{sub_id}")],
+                [InlineKeyboardButton(text="◀ Нет", callback_data=f"edit_dev_sub:{sub_id}")],
+            ]),
+        )
+
+    @router.callback_query(F.data.startswith("dsc_ip_ok:"))
+    async def cb_disconnect_ip_ok(callback: CallbackQuery):
         sub_id = int(callback.data.split(":")[1])
         sub = await db.get_subscription(sub_id)
         if not sub:
@@ -687,9 +710,12 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         except Exception as e:
             await callback.message.edit_text(f"Ошибка: {e}", reply_markup=back_button())
             return
+        current = sub.get("device_count", 3)
+        ips = await xui.get_client_ips(email)
         await callback.message.edit_text(
-            "🔌 Все подключения сброшены.",
-            reply_markup=device_mgmt_keyboard(sub_id, sub.get("device_count", 3)),
+            f"🔌 Устройство отключено.\n"
+            f"Подключений сейчас: {len(ips)}/{current}",
+            reply_markup=device_mgmt_keyboard(sub_id, current, ips),
         )
 
     @router.callback_query(F.data.startswith("devedit:"))

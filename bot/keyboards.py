@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="💎 Купить подписку", callback_data="buy")
-    builder.button(text="👤 Мой профиль", callback_data="my_subs")
+    builder.button(text="👤 Профиль", callback_data="my_subs")
     builder.button(text="❓ Помощь", callback_data="help")
     if is_admin:
         builder.button(text="🛡 Админка", callback_data="admin")
@@ -57,10 +57,12 @@ def edit_device_keyboard(sub_id: int, current: int = 3) -> InlineKeyboardMarkup:
     return device_count_keyboard(current, f"devedit:{sub_id}", f"edit_dev_sub:{sub_id}")
 
 
-def device_mgmt_keyboard(sub_id: int, current: int = 3) -> InlineKeyboardMarkup:
+def device_mgmt_keyboard(sub_id: int, current: int = 3, ips: list[str] = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    if ips:
+        for i, ip in enumerate(ips):
+            builder.button(text=f"🌐 {ip}  🔌", callback_data=f"dsc_ip:{sub_id}:{i}")
     builder.button(text="📱 Изменить количество", callback_data=f"edit_dev_count:{sub_id}")
-    builder.button(text="🔌 Отключить все", callback_data=f"edit_dev_reset:{sub_id}")
     builder.button(text="📈 Увеличить лимит", callback_data=f"edit_dev_upgrade:{sub_id}")
     builder.button(text="◀ Назад", callback_data="my_subs")
     builder.adjust(1)
