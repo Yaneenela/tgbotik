@@ -19,9 +19,11 @@ logger = logging.getLogger(__name__)
 
 _nav_last: dict[int, int] = {}
 
-async def _nav(callback: CallbackQuery, text: str, markup=None):
+async def _nav(callback: CallbackQuery, text: str, markup=None, photo=None):
     await callback.answer()
-    msg = await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
+    if not photo:
+        photo = FSInputFile("bot/spacer.png")
+    msg = await callback.bot.send_photo(callback.from_user.id, photo, caption=text, reply_markup=markup)
     chat_id = callback.from_user.id
     prev = _nav_last.pop(chat_id, None)
     try:
@@ -301,7 +303,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     @router.callback_query(F.data == "menu")
     async def cb_menu(callback: CallbackQuery, state: FSMContext):
         await state.clear()
-        await _nav(callback, "Главное меню:", main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids))
+        await _nav(callback, "Главное меню:", main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids), FSInputFile("bot/start.jpg"))
 
     @router.callback_query(F.data == "help")
     async def cb_help(callback: CallbackQuery):
