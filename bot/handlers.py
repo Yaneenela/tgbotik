@@ -126,6 +126,7 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
     yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key) if cfg.yookassa_shop_id and cfg.yookassa_secret_key else None
     crypto = CryptoBot(cfg.crypto_bot_token) if cfg.crypto_bot_token else None
     while True:
+        await asyncio.sleep(30)
         try:
             cursor = await db.conn.execute(
                 "SELECT t.*, u.telegram_id FROM transactions t JOIN users u ON t.user_id = u.id "
@@ -175,7 +176,6 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
                         pass
         except Exception as e:
             logger.error(f"Payment checker error: {e}")
-        await asyncio.sleep(30)
 
 
 async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
@@ -383,9 +383,11 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"💵 Сумма: {total} руб\n\n"
             f"Выберите способ оплаты:"
         )
+        has_yoo = bool(cfg.yookassa_shop_id and cfg.yookassa_secret_key)
+        has_cry = bool(cfg.crypto_bot_token)
         await callback.message.edit_text(
             text,
-            reply_markup=device_count_keyboard(prefix="grant_device", back_cb="admin"),
+            reply_markup=payment_methods_keyboard(has_yoo, has_cry),
         )
 
     @router.callback_query(F.data == "pay:yookassa")
@@ -806,6 +808,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def msg_admin_broadcast(message: Message, bot: Bot, state: FSMContext):
         if message.from_user.id not in cfg.admin_ids:
             return
+        if not message.text:
+            return
         text = message.text.strip()
         if not text:
             await message.answer("Текст не может быть пустым.")
@@ -837,6 +841,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     @router.message(AdminStates.grant_user_id)
     async def msg_admin_grant_user(message: Message, state: FSMContext):
         if message.from_user.id not in cfg.admin_ids:
+            return
+        if not message.text:
             return
         try:
             tg_id = int(message.text.strip())

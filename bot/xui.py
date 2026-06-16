@@ -16,9 +16,16 @@ class XUIManager:
             await asyncio.to_thread(self.api.login)
             self._logged_in = True
 
-    async def get_inbounds(self) -> list[Inbound]:
+    async def _call(self, func, *args, **kwargs):
         await self._ensure_login()
-        return await asyncio.to_thread(self.api.inbound.get_list)
+        try:
+            return await asyncio.to_thread(func, *args, **kwargs)
+        except Exception:
+            self._logged_in = False
+            raise
+
+    async def get_inbounds(self) -> list[Inbound]:
+        return await self._call(self.api.inbound.get_list)
 
     async def get_inbound(self, inbound_id: int) -> Optional[Inbound]:
         inbounds = await self.get_inbounds()
@@ -30,7 +37,6 @@ class XUIManager:
     async def create_client(
         self, inbound_ids: list[int], email: str, days: int, traffic_gb: int = 0, device_count: int = 3
     ) -> tuple[str, Client]:
-        await self._ensure_login()
         client_uuid = str(uuid_lib.uuid4())
         expiry = int((datetime.now() + timedelta(days=days)).timestamp() * 1000)
         total_gb = traffic_gb * 1024**3 if traffic_gb > 0 else 0
@@ -48,22 +54,20 @@ class XUIManager:
         )
 
         for inbound_id in inbound_ids:
-            await asyncio.to_thread(self.api.client.add, inbound_id, [client])
+            await self._call(self.api.client.add, inbound_id, [client])
 
         return client_uuid, client
 
     async def delete_client(self, client_uuid: str, inbound_ids: list[int]):
-        await self._ensure_login()
         for inbound_id in inbound_ids:
             try:
-                await asyncio.to_thread(self.api.client.delete, inbound_id, client_uuid)
+                await self._call(self.api.client.delete, inbound_id, client_uuid)
             except Exception:
                 pass
 
     async def update_client_expiry(
         self, client_uuid: str, email: str, additional_days: int, device_count: int = 3
     ):
-        await self._ensure_login()
         now_ms = int(datetime.now().timestamp() * 1000)
         new_expiry = now_ms + additional_days * 86400000
 
@@ -75,12 +79,11 @@ class XUIManager:
             flow="xtls-rprx-vision",
             limit_ip=device_count,
         )
-        await asyncio.to_thread(self.api.client.update, client_uuid, updated)
+        await self._call(self.api.client.update, client_uuid, updated)
 
     async def get_client_traffic(self, client_uuid: str) -> dict:
-        await self._ensure_login()
         try:
-            clients = await asyncio.to_thread(self.api.client.get_traffic_by_id, client_uuid)
+            clients = await self._call(self.api.client.get_traffic_by_id, client_uuid)
             if clients:
                 c = clients[0]
                 return {"up": getattr(c, "up", 0), "down": getattr(c, "down", 0)}
@@ -89,15 +92,13 @@ class XUIManager:
         return {"up": 0, "down": 0}
 
     async def get_client_ips(self, email: str) -> list[str]:
-        await self._ensure_login()
         try:
-            return await asyncio.to_thread(self.api.client.get_ips, email)
+            return await self._call(self.api.client.get_ips, email)
         except Exception:
             return []
 
     async def reset_client_ips(self, email: str):
-        await self._ensure_login()
         try:
-            await asyncio.to_thread(self.api.client.reset_ips, email)
+            await self._call(self.api.client.reset_ips, email)
         except Exception:
             pass
