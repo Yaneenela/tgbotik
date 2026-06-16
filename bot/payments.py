@@ -120,7 +120,7 @@ class CryptoBot:
             payload = {
                 "amount": str(amount),
                 "currency_type": "crypto",
-                "accepted_assets": ["USDT"],
+                "asset": "USDT",
                 "description": description,
                 "expires_in": 300,
             }
