@@ -62,8 +62,7 @@ def device_mgmt_keyboard(sub_id: int, current: int = 3, ips: list[str] = None) -
     if ips:
         for i, ip in enumerate(ips):
             builder.button(text=f"🌐 {ip}  🔌", callback_data=f"dsc_ip:{sub_id}:{i}")
-    builder.button(text="📱 Изменить количество", callback_data=f"edit_dev_count:{sub_id}")
-    builder.button(text="📈 Увеличить лимит", callback_data=f"edit_dev_upgrade:{sub_id}")
+    builder.button(text="📱 Изменить лимит", callback_data=f"edit_dev_upgrade:{sub_id}")
     builder.button(text="◀ Назад", callback_data="my_subs")
     builder.adjust(1)
     return builder.as_markup()

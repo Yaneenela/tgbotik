@@ -752,9 +752,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         current = sub.get("device_count", 3)
         text = (
-            f"📈 Увеличение лимита устройств\n\n"
-            f"Текущий лимит: {current}\n"
-            f"➕ Стоимость доп. устройства: 50 руб/шт\n\n"
+            f"📱 Изменение лимита устройств\n\n"
+            f"Текущий лимит: {current}\n\n"
             f"Выберите новое количество устройств:"
         )
         await callback.message.edit_text(text, reply_markup=device_count_keyboard(current, f"upgrade_dev:{sub_id}", f"edit_dev_sub:{sub_id}"))
@@ -769,24 +768,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             await callback.message.edit_text("Подписка не найдена.", reply_markup=back_button())
             return
         current = sub.get("device_count", 3)
-        if new_count <= current:
-            await callback.answer("Новое количество должно быть больше текущего.", show_alert=True)
-            return
-        extra = new_count - current
-        plan = next((p for p in cfg.plans if p.name == sub["plan_name"]), None)
-        plan_price_extra = plan.extra_device_price if plan else 50
-        price = extra * plan_price_extra
-
-        if cfg.has_payment:
-            await callback.message.edit_text(
-                f"📈 Увеличение лимита\n\n"
-                f"Сейчас: {current} устройств\n"
-                f"Новый лимит: {new_count} устройств\n"
-                f"➕ Дополнительно: +{extra} шт\n"
-                f"💵 Сумма: {price} руб\n\n"
-                f"Оплата в разработке. Обратитесь к администратору.",
-                reply_markup=back_button(),
-            )
+        if new_count == current:
+            await callback.answer("Это текущее количество.", show_alert=True)
             return
 
         tg_id = callback.from_user.id
@@ -798,7 +781,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             await callback.message.edit_text(f"Ошибка 3x-UI: {e}", reply_markup=back_button())
             return
         await callback.message.edit_text(
-            f"✅ Лимит увеличен до {new_count} устройств.",
+            f"✅ Лимит изменён на {new_count} устройств.",
             reply_markup=device_mgmt_keyboard(sub_id, new_count),
         )
 
