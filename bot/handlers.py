@@ -356,7 +356,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
         )
-        await _nav(callback, text, device_count_keyboard())
+        await _nav(callback, text, device_count_keyboard(confirm_cb="confirm_device"))
 
     @router.callback_query(F.data.startswith("device:"))
     async def cb_select_device(callback: CallbackQuery, state: FSMContext):
@@ -372,21 +372,16 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         plan = cfg.plans[idx]
         total = calc_total_price(plan, device_count)
         await state.update_data(device_count=device_count, total_price=total)
-
         text = (
             f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
-            f"📱 Устройств: {device_count}\n"
-            f"💵 Сумма: {total} руб\n\n"
-            f"Проверьте заказ и нажмите кнопку для оплаты."
+            f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
+            f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
+            f"Выберите количество устройств:"
         )
-        builder = InlineKeyboardBuilder()
-        builder.button(text="💳 Перейти к оплате", callback_data="go_pay")
-        builder.button(text="◀ Назад", callback_data="buy")
-        builder.adjust(1)
-        await _nav(callback, text, builder.as_markup())
+        await _nav(callback, text, device_count_keyboard(current=device_count, confirm_cb="confirm_device"))
 
-    @router.callback_query(F.data == "go_pay")
-    async def cb_go_pay(callback: CallbackQuery, state: FSMContext):
+    @router.callback_query(F.data == "confirm_device")
+    async def cb_confirm_device(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         device_count = data.get("device_count")
         idx = data.get("plan_index")
@@ -608,7 +603,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
         )
-        await _nav(callback, text, device_count_keyboard(current_devices))
+        await _nav(callback, text, device_count_keyboard(current_devices, confirm_cb="confirm_device"))
 
     @router.callback_query(F.data == "my_subs")
     async def cb_my_subs(callback: CallbackQuery):

@@ -43,11 +43,13 @@ def plans_keyboard(plans: list, prefix: str = "plan") -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str = "buy") -> InlineKeyboardMarkup:
+def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str = "buy", confirm_cb: str = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for i in range(1, 11):
         mark = " ✅" if i == current else ""
         builder.button(text=f"{i}{mark}", callback_data=f"{prefix}:{i}")
+    if confirm_cb:
+        builder.button(text="💳 Перейти к оплате", callback_data=confirm_cb)
     builder.button(text="◀ Назад", callback_data=back_cb)
     builder.adjust(5)
     return builder.as_markup()
