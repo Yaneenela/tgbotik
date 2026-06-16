@@ -1,10 +1,13 @@
 import uuid
 import base64
 import time
+import logging
 from datetime import datetime, timedelta, timezone
 import httpx
 from dataclasses import dataclass
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -114,18 +117,22 @@ class CryptoBot:
         self, amount: float, description: str = ""
     ) -> Optional[CryptoInvoice]:
         async with httpx.AsyncClient() as client:
+            payload = {
+                "amount": str(amount),
+                "currency_type": "crypto",
+                "accepted_assets": ["USDT"],
+                "description": description,
+                "expires_in": 300,
+            }
             resp = await client.post(
                 f"{self.base}/createInvoice",
                 headers=self.headers,
-                json={
-                    "amount": str(amount),
-                    "currency_type": "crypto",
-                    "accepted_assets": ["USDT"],
-                    "description": description,
-                    "expires_in": 300,
-                },
+                json=payload,
             )
-            data = resp.json()
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
             if data.get("ok"):
                 result = data["result"]
                 return CryptoInvoice(
@@ -134,6 +141,7 @@ class CryptoBot:
                     status=result["status"],
                     amount=result["amount"],
                 )
+            logger.error(f"CryptoBot createInvoice failed: {resp.status_code} {data}")
             return None
 
     async def check_invoice(self, invoice_id: int) -> Optional[CryptoInvoice]:
