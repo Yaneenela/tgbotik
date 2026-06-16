@@ -21,6 +21,7 @@ _nav_last: dict[int, int] = {}
 
 async def _nav(callback: CallbackQuery, text: str, markup=None):
     await callback.answer()
+    text = text + "\n\n" + "\u2500" * 36
     msg = await callback.bot.send_message(callback.from_user.id, text, reply_markup=markup)
     chat_id = callback.from_user.id
     prev = _nav_last.pop(chat_id, None)
