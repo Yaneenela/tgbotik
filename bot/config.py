@@ -28,6 +28,7 @@ class Config:
     crypto_bot_token: str = ""
     currency: str = "RUB"
     platega_methods: list[int] = field(default_factory=lambda: [2, 11])
+    support_username: str = ""
     plans: list[Plan] = field(default_factory=list)
 
     @property
@@ -100,5 +101,6 @@ def load_config() -> Config:
         crypto_bot_token=os.getenv("CRYPTO_BOT_TOKEN", ""),
         currency=os.getenv("CURRENCY", "RUB"),
         platega_methods=platega_methods,
+        support_username=os.getenv("SUPPORT_USERNAME", ""),
         plans=plans,
     )

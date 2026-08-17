@@ -16,11 +16,12 @@ def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboar
     builder.button(text="💎 Купить подписку", callback_data="buy")
     builder.button(text="👤 Профиль", callback_data="my_subs")
     builder.button(text="❓ Помощь", callback_data="help")
+    builder.button(text="🆘 Поддержка", callback_data="support")
     if is_admin:
         builder.button(text="🛡 Админка", callback_data="admin")
-        builder.adjust(1, 2, 1)
+        builder.adjust(1, 2, 1, 1)
     else:
-        builder.adjust(1, 2)
+        builder.adjust(1, 2, 1)
     return builder.as_markup()
 
 
@@ -44,7 +45,7 @@ def plans_keyboard(plans: list, prefix: str = "plan") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for i, plan in enumerate(plans):
         builder.button(
-            text=f"💎 {plan.days} дн | ♾ Безлимит | {plan.price} ₽",
+            text=f"💎 {plan.price} ₽ | {plan.days} дн | ♾",
             callback_data=f"{prefix}:{i}",
         )
     builder.button(text="◀ Назад", callback_data="menu")

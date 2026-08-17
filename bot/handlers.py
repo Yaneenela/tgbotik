@@ -370,6 +370,23 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         text = guides.get(platform, "Инструкция для этой платформы пока не добавлена.")
         await _nav(callback, text, back_button("help"))
 
+    @router.callback_query(F.data == "support")
+    async def cb_support(callback: CallbackQuery):
+        if cfg.support_username:
+            text = (
+                f"🆘 Поддержка\n\n"
+                f"Если у вас возникли вопросы или проблемы — напишите нам:\n"
+                f"✍️ @{cfg.support_username}"
+            )
+            markup = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✍️ Написать", url=f"https://t.me/{cfg.support_username}")],
+                [InlineKeyboardButton(text="◀ Назад", callback_data="menu")],
+            ])
+        else:
+            text = "🆘 Поддержка пока не подключена. Воспользуйтесь разделом «Помощь»."
+            markup = back_button()
+        await _nav(callback, text, markup)
+
     @router.callback_query(F.data == "buy")
     async def cb_buy(callback: CallbackQuery):
         if not cfg.plans:
