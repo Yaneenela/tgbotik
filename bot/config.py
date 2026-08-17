@@ -23,15 +23,20 @@ class Config:
     xui_password: str
     xui_inbound_ids: list[int]
     sub_url_template: str
-    yookassa_shop_id: str = ""
-    yookassa_secret_key: str = ""
+    platega_merchant_id: str = ""
+    platega_secret: str = ""
     crypto_bot_token: str = ""
     currency: str = "RUB"
+    platega_methods: list[int] = field(default_factory=lambda: [2, 11])
     plans: list[Plan] = field(default_factory=list)
 
     @property
     def has_payment(self) -> bool:
-        return bool(self.yookassa_shop_id and self.yookassa_secret_key) or bool(self.crypto_bot_token)
+        return bool(self.platega_merchant_id and self.platega_secret) or bool(self.crypto_bot_token)
+
+    @property
+    def has_platega(self) -> bool:
+        return bool(self.platega_merchant_id and self.platega_secret)
 
     @property
     def sub_url(self) -> str:
@@ -70,6 +75,17 @@ def load_config() -> Config:
     else:
         xui_inbound_ids = [int(os.getenv("XUI_INBOUND_ID", "1"))]
 
+    platega_methods = []
+    for val in os.getenv("PLATEGA_METHODS", "2,11").split(","):
+        val = val.strip()
+        if val:
+            try:
+                platega_methods.append(int(val))
+            except ValueError:
+                pass
+    if not platega_methods:
+        platega_methods = [2, 11]
+
     return Config(
         bot_token=os.getenv("BOT_TOKEN", ""),
         bot_username=os.getenv("BOT_USERNAME", ""),
@@ -79,9 +95,10 @@ def load_config() -> Config:
         xui_password=os.getenv("XUI_PASSWORD", ""),
         xui_inbound_ids=xui_inbound_ids,
         sub_url_template=os.getenv("SUB_URL_TEMPLATE", ""),
-        yookassa_shop_id=os.getenv("YOOKASSA_SHOP_ID", ""),
-        yookassa_secret_key=os.getenv("YOOKASSA_SECRET_KEY", ""),
+        platega_merchant_id=os.getenv("PLATEGA_MERCHANT_ID", ""),
+        platega_secret=os.getenv("PLATEGA_SECRET", ""),
         crypto_bot_token=os.getenv("CRYPTO_BOT_TOKEN", ""),
         currency=os.getenv("CURRENCY", "RUB"),
+        platega_methods=platega_methods,
         plans=plans,
     )

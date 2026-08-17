@@ -1,15 +1,21 @@
 import aiosqlite
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class Database:
     def __init__(self, path: str = DB_PATH):
         self.path = path
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        dirname = os.path.dirname(path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
 
     async def connect(self):
         self.conn = await aiosqlite.connect(self.path)
@@ -91,7 +97,7 @@ class Database:
         traffic_gb: int,
         device_count: int = 3,
     ) -> dict:
-        expired_at = datetime.now() + timedelta(days=days)
+        expired_at = utc_now() + timedelta(days=days)
         total_bytes = traffic_gb * 1024**3 if traffic_gb > 0 else 0
         cursor = await self.conn.execute(
             """INSERT INTO subscriptions
@@ -142,6 +148,14 @@ class Database:
         )
         await self.conn.commit()
 
+    async def get_transaction_by_payment(self, payment_id: str, user_id: int) -> Optional[dict]:
+        cursor = await self.conn.execute(
+            "SELECT * FROM transactions WHERE payment_id = ? AND user_id = ? LIMIT 1",
+            (payment_id, user_id),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
     async def get_all_users(self) -> list[dict]:
         cursor = await self.conn.execute("SELECT * FROM users ORDER BY created_at DESC")
         rows = await cursor.fetchall()
@@ -157,7 +171,7 @@ class Database:
         return [dict(r) for r in rows]
 
     async def update_sub_expiry(self, sub_id: int, days: int):
-        expired_at = datetime.now() + timedelta(days=days)
+        expired_at = utc_now() + timedelta(days=days)
         await self.conn.execute(
             "UPDATE subscriptions SET expired_at = ? WHERE id = ?",
             (expired_at, sub_id),
@@ -193,7 +207,7 @@ class Database:
             "WHERE s.is_active = 1 AND s.expired_at IS NOT NULL"
         )
         rows = await cursor.fetchall()
-        now = datetime.now()
+        now = utc_now()
         result = []
         for r in rows:
             expired = datetime.fromisoformat(r["expired_at"])
@@ -213,13 +227,13 @@ class Database:
             "WHERE s.is_active = 1 AND s.expired_at IS NOT NULL"
         )
         rows = await cursor.fetchall()
-        now = datetime.now()
+        now = utc_now()
         return [dict(r) for r in rows if datetime.fromisoformat(r["expired_at"]) <= now]
 
     async def mark_reminded(self, sub_id: int):
         await self.conn.execute(
             "UPDATE subscriptions SET reminded_at = ? WHERE id = ?",
-            (datetime.now(), sub_id),
+            (utc_now(), sub_id),
         )
         await self.conn.commit()
 

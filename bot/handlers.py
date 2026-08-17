@@ -10,9 +10,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from bot.config import Config, Plan
-from bot.db import Database
+from bot.db import Database, utc_now
 from bot.xui import XUIManager
-from bot.payments import YooKassa, CryptoBot
+from bot.payments import Platega, CryptoBot
 from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard, device_count_keyboard, edit_device_keyboard, device_mgmt_keyboard, help_keyboard
 
 logger = logging.getLogger(__name__)
@@ -58,8 +58,15 @@ async def _process_payment(
     total_price = calc_total_price(plan, device_count)
 
     if existing:
+        remaining_days = 0
+        if existing.get("expired_at"):
+            try:
+                expiry_dt = datetime.fromisoformat(existing["expired_at"])
+                remaining_days = int(max(0, (expiry_dt - utc_now()).total_seconds() // 86400))
+            except Exception:
+                remaining_days = 0
         try:
-            await xui.update_client_expiry(existing["uuid"], f"tg_{tg_id}", plan.days, device_count)
+            await xui.update_client_expiry(existing["uuid"], f"tg_{tg_id}", plan.days + remaining_days, device_count)
         except Exception as e:
             logger.error(f"3x-UI extend error: {e}")
             await bot.send_message(tg_id, f"Ошибка продления: {e}")
@@ -137,7 +144,7 @@ async def _process_payment(
 
 async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
     await asyncio.sleep(10)
-    yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key) if cfg.yookassa_shop_id and cfg.yookassa_secret_key else None
+    platega = Platega(cfg.platega_merchant_id, cfg.platega_secret) if cfg.has_platega else None
     crypto = CryptoBot(cfg.crypto_bot_token) if cfg.crypto_bot_token else None
     while True:
         await asyncio.sleep(30)
@@ -149,23 +156,28 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
             rows = await cursor.fetchall()
             for row in rows:
                 created = datetime.fromisoformat(row["created_at"]) if row.get("created_at") else None
-                if created and datetime.now() - created > timedelta(minutes=5):
-                    await db.update_transaction(row["payment_id"], "failed")
-                    continue
+                overdue = bool(
+                    created
+                    and utc_now() - created > timedelta(minutes=15 if row["payment_system"] == "platega" else 5)
+                )
 
                 plan = next((p for p in cfg.plans if p.name == row["plan_name"]), None)
                 if not plan:
                     continue
 
                 paid = False
-                if row["payment_system"] == "yookassa" and yoo:
-                    payment = await yoo.check_payment(row["payment_id"])
-                    if payment and payment.status == "succeeded":
+                if row["payment_system"] == "platega" and platega:
+                    tx = await platega.check_payment(row["payment_id"])
+                    if tx and tx.status == "CONFIRMED":
                         paid = True
                 elif row["payment_system"] == "cryptobot" and crypto:
                     invoice = await crypto.check_invoice(int(row["payment_id"]))
                     if invoice and invoice.status == "paid":
                         paid = True
+
+                if not paid and overdue:
+                    await db.update_transaction(row["payment_id"], "failed")
+                    continue
 
                 if paid:
                     await db.conn.execute(
@@ -197,7 +209,7 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
     while True:
         try:
             await sync_subscriptions(cfg, db, xui)
-            now = datetime.now()
+            now = utc_now()
             expired = await db.get_expired_subs()
             for sub in expired:
                 try:
@@ -281,7 +293,7 @@ class AdminStates(StatesGroup):
 def create_router(cfg: Config, db: Database, xui: XUIManager):
     router = Router()
 
-    yoo = YooKassa(cfg.yookassa_shop_id, cfg.yookassa_secret_key) if cfg.yookassa_shop_id and cfg.yookassa_secret_key else None
+    platega = Platega(cfg.platega_merchant_id, cfg.platega_secret) if cfg.has_platega else None
     crypto = CryptoBot(cfg.crypto_bot_token) if cfg.crypto_bot_token else None
 
     @router.message(Command("start"))
@@ -415,12 +427,15 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             f"💵 Сумма: {total} руб\n\n"
             f"Выберите способ оплаты:"
         )
-        has_yoo = bool(cfg.yookassa_shop_id and cfg.yookassa_secret_key)
+        has_platega = cfg.has_platega
         has_cry = bool(cfg.crypto_bot_token)
-        await _nav(callback, text, payment_methods_keyboard(has_yoo, has_cry))
+        if not has_platega and not has_cry:
+            await _nav(callback, "Оплата временно недоступна. Попробуйте позже.", back_button())
+            return
+        await _nav(callback, text, payment_methods_keyboard(cfg.platega_methods if has_platega else [], has_cry))
 
-    @router.callback_query(F.data == "pay:yookassa")
-    async def cb_pay_yookassa(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    @router.callback_query(F.data.startswith("pay:platega"))
+    async def cb_pay_platega(callback: CallbackQuery, state: FSMContext, bot: Bot):
         data = await state.get_data()
         idx = data.get("plan_index")
         device_count = data.get("device_count", 3)
@@ -431,17 +446,22 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         total_price = calc_total_price(plan, device_count)
         tg_id = callback.from_user.id
 
-        if not yoo:
-            await _nav(callback, "Оплата через ЮKassa недоступна.", back_button())
+        parts = callback.data.split(":")
+        method = int(parts[2]) if len(parts) > 2 else (cfg.platega_methods[0] if cfg.platega_methods else 11)
+
+        if not platega:
+            await _nav(callback, "Оплата через Platega недоступна.", back_button())
             return
 
         await callback.message.edit_text("⏳ Создаём платёж...")
 
         bot_username = cfg.bot_username or "bot"
-        payment = await yoo.create_payment(
+        payment = await platega.create_payment(
             amount=total_price,
+            payment_method=method,
             description=f"{plan.name} ({device_count} уст.)",
             return_url=f"https://t.me/{bot_username}",
+            payload=f"tg:{tg_id}:{plan.name}",
         )
 
         if not payment:
@@ -453,22 +473,22 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             user_id=user["id"],
             amount=total_price,
             currency=cfg.currency,
-            payment_system="yookassa",
-            payment_id=payment.payment_id,
+            payment_system="platega",
+            payment_id=payment.transaction_id,
             plan_name=plan.name,
         )
 
-        await state.update_data(payment_id=payment.payment_id, plan_index=idx, payment_method="yookassa")
+        await state.update_data(payment_id=payment.transaction_id, plan_index=idx, payment_method="platega")
         await callback.message.edit_text(
             f"💳 Счёт создан!\n\n"
             f"Сумма: {total_price} руб\n"
             f"За: {plan.name} ({device_count} уст.)\n\n"
-            f"⏳ У вас есть 5 минут на оплату.\n"
+            f"⏳ У вас есть 15 минут на оплату.\n"
             f"Нажмите кнопку ниже для оплаты:",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="💳 Оплатить", url=payment.confirmation_url)],
-                    [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay:yoo:{payment.payment_id}:{idx}")],
+                    [InlineKeyboardButton(text="💳 Оплатить", url=payment.redirect_url)],
+                    [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay:platega:{payment.transaction_id}:{idx}")],
                     [InlineKeyboardButton(text="◀ Назад", callback_data="buy")],
                 ]
             ),
@@ -545,10 +565,16 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         plan = cfg.plans[idx]
         tg_id = callback.from_user.id
 
+        user = await db.get_user(tg_id)
+        own = await db.get_transaction_by_payment(pay_id, user["id"]) if user else None
+        if not own:
+            await callback.answer("Платёж не найден.", show_alert=True)
+            return
+
         paid = False
-        if method == "yoo" and yoo:
-            payment = await yoo.check_payment(pay_id)
-            if payment and payment.status == "succeeded":
+        if method == "platega" and platega:
+            tx = await platega.check_payment(pay_id)
+            if tx and tx.status == "CONFIRMED":
                 paid = True
         elif method == "crypto" and crypto:
             invoice = await crypto.check_invoice(int(pay_id))
@@ -737,7 +763,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         await db.update_sub_device_count(sub_id, new_count)
         try:
-            remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - datetime.now()).days) if sub.get("expired_at") else 0
+            remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - utc_now()).days) if sub.get("expired_at") else 0
             await xui.update_client_expiry(sub["uuid"], f"tg_{callback.from_user.id}", remaining_days, new_count)
         except Exception as e:
             logger.error(f"3x-UI device count update error: {e}")
@@ -783,7 +809,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if new_count < current:
             await db.update_sub_device_count(sub_id, new_count)
             try:
-                remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - datetime.now()).days) if sub.get("expired_at") else 0
+                remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - utc_now()).days) if sub.get("expired_at") else 0
                 await xui.update_client_expiry(sub["uuid"], f"tg_{tg_id}", remaining_days, new_count)
             except Exception as e:
                 await _nav(callback, f"Ошибка 3x-UI: {e}", back_button())
@@ -799,10 +825,79 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         plan = next((p for p in cfg.plans if p.name == sub["plan_name"]), None)
         price = extra * (plan.extra_device_price if plan else 50)
 
-        if not crypto:
+        if crypto:
+            try:
+                usdt_rate = await crypto.get_usdt_rate()
+            except Exception:
+                usdt_rate = 0
+            if usdt_rate > 0:
+                usdt_amount = round(price / usdt_rate, 2)
+                invoice = await crypto.create_invoice(
+                    amount=usdt_amount,
+                    description=f"+{extra} уст. | {sub['plan_name']} | @{callback.from_user.username or tg_id}",
+                )
+                if invoice:
+                    user = await db.get_user(tg_id)
+                    await db.add_transaction(
+                        user_id=user["id"],
+                        amount=price,
+                        currency=cfg.currency,
+                        payment_system="cryptobot",
+                        payment_id=str(invoice.invoice_id),
+                        plan_name=f"upgrade_{sub_id}",
+                    )
+
+                    await callback.message.edit_text(
+                        f"💱 Для увеличения лимита оплатите:\n\n"
+                        f"➕ +{extra} устройств(а) (→{new_count})\n"
+                        f"💵 {price} руб (~{usdt_amount} USDT)\n"
+                        f"Курс: 1 USDT ≈ {usdt_rate:.0f} руб\n\n"
+                        f"⏳ У вас есть 5 минут на оплату.",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="💱 Оплатить", url=invoice.pay_url)],
+                            [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"upgrade_pay:{invoice.invoice_id}:{sub_id}:{new_count}")],
+                            [InlineKeyboardButton(text="◀ Назад", callback_data=f"edit_dev_sub:{sub_id}")],
+                        ]),
+                    )
+                    return
+
+        if platega:
+            payment = await platega.create_payment(
+                amount=price,
+                payment_method=cfg.platega_methods[0] if cfg.platega_methods else 11,
+                description=f"+{extra} уст. | {sub['plan_name']} | @{callback.from_user.username or tg_id}",
+                return_url=f"https://t.me/{cfg.bot_username or 'bot'}",
+                payload=f"upgrade:{sub_id}",
+            )
+            if payment:
+                user = await db.get_user(tg_id)
+                await db.add_transaction(
+                    user_id=user["id"],
+                    amount=price,
+                    currency=cfg.currency,
+                    payment_system="platega",
+                    payment_id=payment.transaction_id,
+                    plan_name=f"upgrade_{sub_id}",
+                )
+
+                await callback.message.edit_text(
+                    f"💳 Для увеличения лимита оплатите:\n\n"
+                    f"➕ +{extra} устройств(а) (→{new_count})\n"
+                    f"💵 {price} руб\n\n"
+                    f"⏳ У вас есть 15 минут на оплату.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="💳 Оплатить", url=payment.redirect_url)],
+                        [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"upgrade_pay_pg:{payment.transaction_id}:{sub_id}:{new_count}")],
+                        [InlineKeyboardButton(text="◀ Назад", callback_data=f"edit_dev_sub:{sub_id}")],
+                    ]),
+                )
+                return
+
+        # Payment systems configured, but both failed to create invoice.
+        if not crypto and not platega:
             await db.update_sub_device_count(sub_id, new_count)
             try:
-                remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - datetime.now()).days) if sub.get("expired_at") else 0
+                remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - utc_now()).days) if sub.get("expired_at") else 0
                 await xui.update_client_expiry(sub["uuid"], f"tg_{tg_id}", remaining_days, new_count)
             except Exception as e:
                 await _nav(callback, f"Ошибка 3x-UI: {e}", back_button())
@@ -813,47 +908,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             )
             return
 
-        await callback.message.edit_text("⏳ Создаём счёт...")
-
-        try:
-            usdt_rate = await crypto.get_usdt_rate()
-        except Exception:
-            usdt_rate = 0
-        if usdt_rate <= 0:
-            await _nav(callback, "Ошибка получения курса.", back_button())
-            return
-
-        usdt_amount = round(price / usdt_rate, 2)
-        invoice = await crypto.create_invoice(
-            amount=usdt_amount,
-            description=f"+{extra} уст. | {sub['plan_name']} | @{callback.from_user.username or tg_id}",
-        )
-        if not invoice:
-            await _nav(callback, "Ошибка создания счёта.", back_button())
-            return
-
-        user = await db.get_user(tg_id)
-        await db.add_transaction(
-            user_id=user["id"],
-            amount=price,
-            currency=cfg.currency,
-            payment_system="cryptobot",
-            payment_id=str(invoice.invoice_id),
-            plan_name=f"upgrade_{sub_id}",
-        )
-
-        await callback.message.edit_text(
-            f"💱 Для увеличения лимита оплатите:\n\n"
-            f"➕ +{extra} устройств(а) (→{new_count})\n"
-            f"💵 {price} руб (~{usdt_amount} USDT)\n"
-            f"Курс: 1 USDT ≈ {usdt_rate:.0f} руб\n\n"
-            f"⏳ У вас есть 5 минут на оплату.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💱 Оплатить", url=invoice.pay_url)],
-                [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"upgrade_pay:{invoice.invoice_id}:{sub_id}:{new_count}")],
-                [InlineKeyboardButton(text="◀ Назад", callback_data=f"edit_dev_sub:{sub_id}")],
-            ]),
-        )
+        await _nav(callback, "Не удалось создать платёж. Попробуйте позже.", back_button())
 
     @router.callback_query(F.data.startswith("upgrade_pay:"))
     async def cb_upgrade_pay_check(callback: CallbackQuery, bot: Bot):
@@ -865,6 +920,12 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         if not crypto:
             await callback.answer("Платёжная система недоступна.", show_alert=True)
+            return
+
+        user = await db.get_user(tg_id)
+        own = await db.get_transaction_by_payment(str(invoice_id), user["id"]) if user else None
+        if not own:
+            await callback.answer("Платёж не найден.", show_alert=True)
             return
 
         invoice = await crypto.check_invoice(invoice_id)
@@ -885,7 +946,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         await db.update_sub_device_count(sub_id, new_count)
         try:
-            remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - datetime.now()).days) if sub.get("expired_at") else 0
+            remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - utc_now()).days) if sub.get("expired_at") else 0
             await xui.update_client_expiry(sub["uuid"], f"tg_{tg_id}", remaining_days, new_count)
         except Exception as e:
             await _nav(callback, f"Ошибка 3x-UI: {e}", back_button())
@@ -894,6 +955,59 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await db.conn.execute(
             "UPDATE transactions SET status = 'completed' WHERE payment_id = ?",
             (str(invoice_id),),
+        )
+        await db.conn.commit()
+
+        await _nav(callback,
+            f"✅ Оплата подтверждена! Лимит увеличен до {new_count} устройств.",
+            device_mgmt_keyboard(sub_id, new_count),
+        )
+
+    @router.callback_query(F.data.startswith("upgrade_pay_pg:"))
+    async def cb_upgrade_platega_pay_check(callback: CallbackQuery, bot: Bot):
+        parts = callback.data.split(":")
+        transaction_id = parts[1]
+        sub_id = int(parts[2])
+        new_count = int(parts[3])
+        tg_id = callback.from_user.id
+
+        if not platega:
+            await callback.answer("Платёжная система недоступна.", show_alert=True)
+            return
+
+        user = await db.get_user(tg_id)
+        own = await db.get_transaction_by_payment(transaction_id, user["id"]) if user else None
+        if not own:
+            await callback.answer("Платёж не найден.", show_alert=True)
+            return
+
+        tx = await platega.check_payment(transaction_id)
+        if not tx or tx.status != "CONFIRMED":
+            await callback.answer("⏳ Оплата ещё не найдена. Попробуйте позже.", show_alert=True)
+            return
+
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await _nav(callback, "Подписка не найдена.", back_button())
+            return
+
+        await db.conn.execute(
+            "UPDATE transactions SET status = 'processing' WHERE payment_id = ? AND status = 'pending'",
+            (transaction_id,),
+        )
+        await db.conn.commit()
+
+        await db.update_sub_device_count(sub_id, new_count)
+        try:
+            remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - utc_now()).days) if sub.get("expired_at") else 0
+            await xui.update_client_expiry(sub["uuid"], f"tg_{tg_id}", remaining_days, new_count)
+        except Exception as e:
+            await _nav(callback, f"Ошибка 3x-UI: {e}", back_button())
+            return
+
+        await db.conn.execute(
+            "UPDATE transactions SET status = 'completed' WHERE payment_id = ?",
+            (transaction_id,),
         )
         await db.conn.commit()
 

@@ -33,9 +33,9 @@ async def main():
     if not cfg.xui_url or not cfg.xui_username or not cfg.xui_password:
         logger.error("XUI_URL, XUI_USERNAME, XUI_PASSWORD are required")
         return
-    has_yoo = bool(cfg.yookassa_shop_id and cfg.yookassa_secret_key)
+    has_platega = cfg.has_platega
     has_crypto = bool(cfg.crypto_bot_token)
-    if not has_yoo and not has_crypto:
+    if not has_platega and not has_crypto:
         logger.warning("No payment methods configured — bot will start without purchase functionality")
 
     db = Database()

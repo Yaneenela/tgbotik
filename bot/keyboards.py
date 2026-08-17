@@ -2,6 +2,15 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
+PAYMENT_METHOD_LABELS = {
+    2: "⚡ СБП",
+    3: "🏦 ЕРИП",
+    11: "💳 Карта",
+    12: "🌍 Международная",
+    13: "₿ Крипта",
+}
+
+
 def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="💎 Купить подписку", callback_data="buy")
@@ -74,10 +83,11 @@ def device_mgmt_keyboard(sub_id: int, current: int = 3, ips: list[str] = None) -
     return builder.as_markup()
 
 
-def payment_methods_keyboard(has_yookassa: bool, has_crypto: bool, back_cb: str = "buy") -> InlineKeyboardMarkup:
+def payment_methods_keyboard(platega_methods: list[int], has_crypto: bool, back_cb: str = "buy") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if has_yookassa:
-        builder.button(text="💳 Карта / СБП", callback_data="pay:yookassa")
+    for m in platega_methods:
+        label = PAYMENT_METHOD_LABELS.get(m, f"Оплата ({m})")
+        builder.button(text=label, callback_data=f"pay:platega:{m}")
     if has_crypto:
         builder.button(text="💱 CryptoBot", callback_data="pay:crypto")
     builder.button(text="◀ Назад", callback_data=back_cb)

@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import uuid as uuid_lib
 
@@ -38,7 +38,7 @@ class XUIManager:
         self, inbound_ids: list[int], email: str, days: int, traffic_gb: int = 0, device_count: int = 3
     ) -> tuple[str, Client]:
         client_uuid = str(uuid_lib.uuid4())
-        expiry = int((datetime.now() + timedelta(days=days)).timestamp() * 1000)
+        expiry = int((datetime.now(timezone.utc) + timedelta(days=days)).timestamp() * 1000)
         total_gb = traffic_gb * 1024**3 if traffic_gb > 0 else 0
 
         client = Client(
@@ -68,7 +68,7 @@ class XUIManager:
     async def update_client_expiry(
         self, client_uuid: str, email: str, additional_days: int, device_count: int = 3
     ):
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         new_expiry = now_ms + additional_days * 86400000
 
         updated = Client(

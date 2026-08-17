@@ -1,8 +1,5 @@
-import uuid
-import base64
 import time
 import logging
-from datetime import datetime, timedelta, timezone
 import httpx
 from dataclasses import dataclass
 from typing import Optional
@@ -10,76 +7,88 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+# PaymentMethodInt из документации Platega
+PAYMENT_METHOD_SBP = 2
+PAYMENT_METHOD_ERIP = 3
+PAYMENT_METHOD_CARD = 11
+PAYMENT_METHOD_INTERNATIONAL = 12
+PAYMENT_METHOD_CRYPTO = 13
+
+
 @dataclass
-class YooPayment:
-    payment_id: str
-    confirmation_url: str
+class PlategaTransaction:
+    transaction_id: str
+    redirect_url: str
     status: str
     amount: str
 
 
-class YooKassa:
-    def __init__(self, shop_id: str, secret_key: str):
-        self.shop_id = shop_id
-        self.secret_key = secret_key
-        auth_str = f"{shop_id}:{secret_key}"
-        self.auth_header = f"Basic {base64.b64encode(auth_str.encode()).decode()}"
-        self.base = "https://api.yookassa.ru/v3"
+class Platega:
+    def __init__(self, merchant_id: str, secret: str):
+        self.base = "https://app.platega.io/"
+        self.headers = {
+            "X-MerchantId": merchant_id,
+            "X-Secret": secret,
+            "Content-Type": "application/json",
+        }
 
     async def create_payment(
-        self, amount: float, description: str = "", return_url: str = ""
-    ) -> Optional[YooPayment]:
-        idempotence_key = str(uuid.uuid4())
-        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
-        async with httpx.AsyncClient() as client:
+        self,
+        amount: float,
+        payment_method: int,
+        description: str = "",
+        return_url: str = "",
+        payload: str = "",
+    ) -> Optional[PlategaTransaction]:
+        body = {
+            "paymentMethod": payment_method,
+            "paymentDetails": {
+                "amount": float(amount),
+                "currency": "RUB",
+            },
+            "description": description,
+            "return": return_url,
+            "failedUrl": return_url,
+        }
+        if payload:
+            body["payload"] = payload
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
-                f"{self.base}/payments",
-                headers={
-                    "Authorization": self.auth_header,
-                    "Idempotence-Key": idempotence_key,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "amount": {
-                        "value": f"{amount:.2f}",
-                        "currency": "RUB",
-                    },
-                    "confirmation": {
-                        "type": "redirect",
-                        "return_url": return_url,
-                    },
-                    "capture": True,
-                    "description": description,
-                    "expires_at": expires_at,
-                },
+                f"{self.base}transaction/process",
+                headers=self.headers,
+                json=body,
             )
             if resp.status_code != 200:
+                logger.error(f"Platega createPayment failed: {resp.status_code} {resp.text}")
                 return None
             data = resp.json()
-            return YooPayment(
-                payment_id=data["id"],
-                confirmation_url=data["confirmation"]["confirmation_url"],
-                status=data["status"],
-                amount=data["amount"]["value"],
+            return PlategaTransaction(
+                transaction_id=data["transactionId"],
+                redirect_url=data["redirect"],
+                status=data.get("status", "PENDING"),
+                amount=str(data.get("paymentDetails", amount)),
             )
 
-    async def check_payment(self, payment_id: str) -> Optional[YooPayment]:
-        async with httpx.AsyncClient() as client:
+    async def check_payment(self, transaction_id: str) -> Optional[PlategaTransaction]:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
-                f"{self.base}/payments/{payment_id}",
-                headers={
-                    "Authorization": self.auth_header,
-                    "Content-Type": "application/json",
-                },
+                f"{self.base}transaction/{transaction_id}",
+                headers=self.headers,
             )
             if resp.status_code != 200:
                 return None
             data = resp.json()
-            return YooPayment(
-                payment_id=data["id"],
-                confirmation_url="",
-                status=data["status"],
-                amount=data["amount"]["value"],
+            amount = ""
+            details = data.get("paymentDetails")
+            if isinstance(details, dict):
+                amount = str(details.get("amount", ""))
+            elif isinstance(details, str):
+                amount = details
+            return PlategaTransaction(
+                transaction_id=data["id"],
+                redirect_url=data.get("payformSuccessUrl", ""),
+                status=data.get("status", "PENDING"),
+                amount=amount,
             )
 
 
