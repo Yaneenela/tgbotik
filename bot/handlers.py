@@ -305,7 +305,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await message.answer_photo(
             photo,
             caption=(
-                f"Добро пожаловать в AlienDark 🐈⬛"
+                f"Добро пожаловать в AlienDark 😼"
             ),
             reply_markup=main_menu(cfg.has_payment, tg_id in cfg.admin_ids),
         )
@@ -318,7 +318,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_menu(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         text = (
-            f"Добро пожаловать в AlienDark 🐈⬛"
+            f"Добро пожаловать в AlienDark 😼"
         )
         await _nav(callback, text, main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids), photo_path="bot/start.jpg")
 
@@ -335,22 +335,34 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         platform = callback.data.split(":")[1]
         guides = {
             "android": (
-                "📱 **Android — Happ**\n\n"
+                "📱 **Android — Happ / Incy**\n\n"
+                "**Happ:**\n"
                 "1. Скачайте Happ из Google Play или с GitHub: github.com/Happ-proxy\n"
                 "2. Откройте приложение\n"
                 "3. Нажмите / → **Добавить из буфера**\n"
                 "4. Скопируйте ссылку подписки из профиля бота\n"
                 "5. Приложение само подставит ссылку — нажмите **Добавить**\n"
-                "6. Выберите профиль и нажмите **Подключиться**"
+                "6. Выберите профиль и нажмите **Подключиться**\n\n"
+                "**Incy:**\n"
+                "1. Скачайте Incy из Google Play\n"
+                "2. Откройте и нажмите **+** (Добавить)\n"
+                "3. Вставьте ссылку подписки из профиля бота\n"
+                "4. Подключитесь"
             ),
             "ios": (
-                "🍎 **iOS / iPadOS — Happ**\n\n"
+                "🍎 **iOS / iPadOS — Happ / Incy**\n\n"
+                "**Happ:**\n"
                 "1. Скачайте Happ из App Store\n"
                 "2. Откройте приложение\n"
                 "3. Нажмите / → **Импортировать из буфера**\n"
                 "4. Скопируйте ссылку подписки из профиля бота\n"
                 "5. Приложение подставит данные — нажмите **Добавить**\n"
-                "6. Включите тумблер для подключения"
+                "6. Включите тумблер для подключения\n\n"
+                "**Incy:**\n"
+                "1. Скачайте Incy из App Store\n"
+                "2. Откройте и нажмите **+** (Добавить)\n"
+                "3. Вставьте ссылку подписки из профиля бота\n"
+                "4. Подключитесь"
             ),
             "desktop": (
                 "💻 **Windows / MacOS — Happ**\n\n"
