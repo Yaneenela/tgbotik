@@ -407,7 +407,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not cfg.plans:
             await _nav(callback, "Нет доступных тарифов.", back_button())
             return
-        await _nav(callback, "💎 Выберите тариф:", plans_keyboard(cfg.plans, "plan"))
+        await _nav(callback, "💎 Выберите тариф:", plans_keyboard(cfg.plans, "plan"), photo_path="bot/tariffs.jpg")
 
     @router.callback_query(F.data.startswith("plan:"))
     async def cb_select_plan(callback: CallbackQuery, state: FSMContext):
