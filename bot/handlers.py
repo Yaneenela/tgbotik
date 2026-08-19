@@ -522,7 +522,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                 inline_keyboard=[
                     [InlineKeyboardButton(text="💳 Оплатить", url=payment.redirect_url)],
                     [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay:platega:{payment.transaction_id}:{idx}")],
-                    [InlineKeyboardButton(text="◀ Назад", callback_data="buy")],
+                    [InlineKeyboardButton(text="❌ Отменить оплату", callback_data="cancel_pay")],
                 ]
             ),
         )
@@ -585,9 +585,24 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                 inline_keyboard=[
                     [InlineKeyboardButton(text="💱 Оплатить", url=invoice.pay_url)],
                     [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay:crypto:{invoice.invoice_id}:{idx}")],
-                    [InlineKeyboardButton(text="◀ Назад", callback_data="buy")],
+                    [InlineKeyboardButton(text="❌ Отменить оплату", callback_data="cancel_pay")],
                 ]
             ),
+        )
+
+    @router.callback_query(F.data == "cancel_pay")
+    async def cb_cancel_pay(callback: CallbackQuery, state: FSMContext):
+        data = await state.get_data()
+        payment_id = data.get("payment_id")
+        if payment_id:
+            await db.update_transaction(payment_id, "canceled")
+        await state.clear()
+        text = "❌ Оплата отменена.\n\nДобро пожаловать в AlienDark 🐈"
+        await _nav(
+            callback,
+            text,
+            main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids),
+            photo_path="bot/start.jpg",
         )
 
     @router.callback_query(F.data.startswith("check_pay:"))
