@@ -57,18 +57,8 @@ async def main():
 
     default_commands = [
         BotCommand(command="start", description="Главное меню"),
-        BotCommand(command="my", description="Мои подписки"),
-        BotCommand(command="plans", description="Тарифы"),
     ]
     await bot.set_my_commands(default_commands, scope=BotCommandScopeDefault())
-    for admin_id in cfg.admin_ids:
-        await bot.set_my_commands(
-            default_commands + [
-                BotCommand(command="admin", description="Админка"),
-                BotCommand(command="broadcast", description="Рассылка"),
-            ],
-            scope=BotCommandScopeChat(chat_id=admin_id),
-        )
 
     dp = Dispatcher()
     dp.include_router(create_router(cfg, db, xui))
