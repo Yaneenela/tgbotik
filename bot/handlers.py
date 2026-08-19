@@ -305,7 +305,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await message.answer_photo(
             photo,
             caption=(
-                f"Добро пожаловать, {message.from_user.full_name}! 👋\n\n"
+                f"Добро пожаловать в AlienDark 😼\n\n"
                 f"Я помогу приобрести подписку.\n"
                 f"Используйте кнопки ниже для навигации."
             ),
@@ -319,9 +319,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     @router.callback_query(F.data == "menu")
     async def cb_menu(callback: CallbackQuery, state: FSMContext):
         await state.clear()
-        name = callback.from_user.full_name
         text = (
-            f"Добро пожаловать, {name}! 👋\n\n"
+            f"Добро пожаловать в AlienDark 😼\n\n"
             f"Я помогу приобрести подписку.\n"
             f"Используйте кнопки ниже для навигации."
         )
