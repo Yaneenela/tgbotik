@@ -16,7 +16,7 @@ def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboar
     builder.button(text="💎 Купить подписку", callback_data="buy")
     builder.button(text="👤 Профиль", callback_data="my_subs")
     builder.button(text="❓ Помощь", callback_data="help")
-    builder.button(text="🆘 Поддержка", callback_data="support")
+    builder.button(text="ℹ️ О сервисе", callback_data="about")
     if is_admin:
         builder.button(text="🛡 Админка", callback_data="admin")
         builder.adjust(1, 2, 1, 1)
@@ -28,6 +28,22 @@ def main_menu(has_payment: bool = True, is_admin: bool = False) -> InlineKeyboar
 def back_button(back_cb: str = "menu") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="◀ Назад", callback_data=back_cb)
+    return builder.as_markup()
+
+
+def about_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🔒 Политика конфиденциальности",
+        url="https://telegra.ph/Politika-konfidencialnosti-08-19-119",
+    )
+    builder.button(
+        text="📄 Пользовательское соглашение",
+        url="https://telegra.ph/Polzovatelskoe-soglashenie-08-19-43",
+    )
+    builder.button(text="🆘 Поддержка", callback_data="support")
+    builder.button(text="◀ Назад", callback_data="menu")
+    builder.adjust(1)
     return builder.as_markup()
 
 

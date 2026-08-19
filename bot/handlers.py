@@ -13,7 +13,7 @@ from bot.config import Config, Plan
 from bot.db import Database, utc_now
 from bot.xui import XUIManager
 from bot.payments import Platega, CryptoBot
-from bot.keyboards import main_menu, back_button, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard, device_count_keyboard, edit_device_keyboard, device_mgmt_keyboard, help_keyboard
+from bot.keyboards import main_menu, back_button, about_keyboard, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard, device_count_keyboard, edit_device_keyboard, device_mgmt_keyboard, help_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ async def _process_payment(
             f"📅 Срок: {plan.days} дней\n\n"
             f"🔗 Ссылка на подписку:\n"
             f"<code>{sub_url}</code>\n\n"
-            f"Импортируйте эту ссылку в вашем VPN-клиенте."
+            f"Импортируйте эту ссылку в вашем клиенте для подключения."
         )
     try:
         await bot.send_message(tg_id, msg)
@@ -222,7 +222,7 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
                     await bot.send_message(
                         sub["telegram_id"],
                         "Ваша подписка истекла. "
-                        "Чтобы продолжить пользоваться VPN, "
+                        "Чтобы продолжить пользоваться сервисом, "
                         "приобретите новый тариф.",
                         reply_markup=main_menu(cfg.has_payment, sub["telegram_id"] in cfg.admin_ids),
                     )
@@ -306,7 +306,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             photo,
             caption=(
                 f"Добро пожаловать, {message.from_user.full_name}! 👋\n\n"
-                f"Я помогу приобрести подписку VPN.\n"
+                f"Я помогу приобрести подписку.\n"
                 f"Используйте кнопки ниже для навигации."
             ),
             reply_markup=main_menu(cfg.has_payment, tg_id in cfg.admin_ids),
@@ -322,7 +322,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         name = callback.from_user.full_name
         text = (
             f"Добро пожаловать, {name}! 👋\n\n"
-            f"Я помогу приобрести подписку VPN.\n"
+            f"Я помогу приобрести подписку.\n"
             f"Используйте кнопки ниже для навигации."
         )
         await _nav(callback, text, main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids), photo_path="bot/start.jpg")
@@ -370,6 +370,14 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         text = guides.get(platform, "Инструкция для этой платформы пока не добавлена.")
         await _nav(callback, text, back_button("help"))
 
+    @router.callback_query(F.data == "about")
+    async def cb_about(callback: CallbackQuery):
+        text = (
+            "ℹ️ О сервисе\n\n"
+            "Подробная информация о сервисе и поддержка — по кнопкам ниже."
+        )
+        await _nav(callback, text, about_keyboard())
+
     @router.callback_query(F.data == "support")
     async def cb_support(callback: CallbackQuery):
         if cfg.support_username:
@@ -380,11 +388,11 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             )
             markup = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✍️ Написать", url=f"https://t.me/{cfg.support_username}")],
-                [InlineKeyboardButton(text="◀ Назад", callback_data="menu")],
+                [InlineKeyboardButton(text="◀ Назад", callback_data="about")],
             ])
         else:
             text = "🆘 Поддержка пока не подключена. Воспользуйтесь разделом «Помощь»."
-            markup = back_button()
+            markup = back_button("about")
         await _nav(callback, text, markup)
 
     @router.callback_query(F.data == "buy")
