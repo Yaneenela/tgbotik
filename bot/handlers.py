@@ -103,7 +103,7 @@ async def _process_payment(
     if is_renewal:
         msg = (
             f"✅ Подписка продлена!\n\n"
-            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"📱 Устройств: {device_count}\n"
             f"💵 Сумма: {total_price} руб\n"
             f"📅 Срок: +{plan.days} дней\n\n"
@@ -113,7 +113,7 @@ async def _process_payment(
     else:
         msg = (
             f"✅ Подписка активирована!\n\n"
-            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"📱 Устройств: {device_count}\n"
             f"💵 Сумма: {total_price} руб\n"
             f"📅 Срок: {plan.days} дней\n\n"
@@ -133,7 +133,7 @@ async def _process_payment(
                 admin_id,
                 f"🔔 {label}!\n"
                 f"👤 {user['username'] or tg_id}\n"
-                f"💡 {plan.days} дней | Безлимит ♾ | {total_price} руб\n"
+                f"💡 {plan.days} дней | Безлимит | {total_price} руб\n"
                 f"📱 Устройств: {device_count}\n"
                 f"🔗 {sub_url}",
                 disable_notification=True,
@@ -666,7 +666,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         current_devices = sub["device_count"] if sub else 3
         await state.update_data(plan_index=int(plan_idx))
         text = (
-            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
@@ -1175,7 +1175,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         builder.button(text="◀ Назад", callback_data="admin")
         builder.adjust(5)
         text = (
-            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
@@ -1197,7 +1197,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         total_price = calc_total_price(plan, device_count)
         await _nav(callback,
             f"✅ Подписка выдана!\n"
-            f"💡 {plan.days} дней | Безлимит ♾\n"
+            f"💡 {plan.days} дней | Безлимит\n"
             f"📱 Устройств: {device_count}\n"
             f"💵 Сумма: {total_price} руб\n"
             f"👤 Пользователь: {tg_id}",
