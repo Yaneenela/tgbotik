@@ -756,12 +756,54 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             )
         builder = InlineKeyboardBuilder()
         for s in subs:
-            label = f"🔄 Продлить: {s['plan_name']}"
-            builder.button(text=label, callback_data=f"renew_sub:{s['id']}")
+            builder.button(text=f"🔄 Продлить: {s['plan_name']}", callback_data=f"renew_sub:{s['id']}")
+            builder.button(text=f"❌ Удалить: {s['plan_name']}", callback_data=f"del_sub:{s['id']}")
         builder.button(text="📱 Изменить устройства", callback_data="edit_devices")
         builder.button(text="◀ Назад", callback_data="menu")
-        builder.adjust(1)
+        builder.adjust(2)
         await _nav(callback, "\n".join(text_parts), builder.as_markup())
+
+    @router.callback_query(F.data.startswith("del_sub:"))
+    async def cb_del_sub(callback: CallbackQuery):
+        sub_id = int(callback.data.split(":")[1])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await _nav(callback, "Подписка не найдена.", back_button("my_subs"))
+            return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
+            return
+        warn = "\n⚠️ Подключение перестанет работать." if sub["is_active"] else ""
+        await _nav(callback,
+            f"❌ Удалить подписку «{sub['plan_name']}»?{warn}\n"
+            f"Это действие нельзя отменить.",
+            InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"del_sub_confirm:{sub_id}")],
+                [InlineKeyboardButton(text="◀ Отмена", callback_data="my_subs")],
+            ]),
+        )
+
+    @router.callback_query(F.data.startswith("del_sub_confirm:"))
+    async def cb_del_sub_confirm(callback: CallbackQuery):
+        sub_id = int(callback.data.split(":")[1])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await _nav(callback, "Подписка не найдена.", back_button("my_subs"))
+            return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
+            return
+        try:
+            await xui.delete_client(sub["uuid"], cfg.xui_inbound_ids)
+        except Exception as e:
+            logger.error(f"3x-UI delete client error (user): {e}")
+        await db.delete_subscription(sub_id)
+        await _nav(callback,
+            f"✅ Подписка «{sub['plan_name']}» удалена.",
+            back_button("my_subs"),
+        )
 
     @router.callback_query(F.data == "edit_devices")
     async def cb_edit_devices(callback: CallbackQuery):

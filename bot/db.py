@@ -227,6 +227,13 @@ class Database:
         )
         await self.conn.commit()
 
+    async def delete_subscription(self, sub_id: int):
+        await self.conn.execute(
+            "DELETE FROM subscriptions WHERE id = ?",
+            (sub_id,),
+        )
+        await self.conn.commit()
+
     async def get_active_sub_by_user_and_plan(self, user_id: int, plan_name: str) -> Optional[dict]:
         cursor = await self.conn.execute(
             "SELECT * FROM subscriptions WHERE user_id = ? AND plan_name = ? AND is_active = 1 LIMIT 1",
