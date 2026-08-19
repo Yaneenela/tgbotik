@@ -6,6 +6,7 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 
 from dotenv import load_dotenv
 
@@ -53,6 +54,22 @@ async def main():
     await sync_subscriptions(cfg, db, xui)
 
     bot = Bot(token=cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+
+    default_commands = [
+        BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="my", description="Мои подписки"),
+        BotCommand(command="plans", description="Тарифы"),
+    ]
+    await bot.set_my_commands(default_commands, scope=BotCommandScopeDefault())
+    for admin_id in cfg.admin_ids:
+        await bot.set_my_commands(
+            default_commands + [
+                BotCommand(command="admin", description="Админка"),
+                BotCommand(command="broadcast", description="Рассылка"),
+            ],
+            scope=BotCommandScopeChat(chat_id=admin_id),
+        )
+
     dp = Dispatcher()
     dp.include_router(create_router(cfg, db, xui))
 
