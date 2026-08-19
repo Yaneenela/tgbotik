@@ -74,7 +74,7 @@ def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str
     start = 3 if confirm_cb else 1
     for i in range(start, 11):
         mark = " ✅" if i == current else ""
-        builder.button(text=f"📱 {i}{mark}", callback_data=f"{prefix}:{i}")
+        builder.button(text=f"{i}{mark}", callback_data=f"{prefix}:{i}")
     if confirm_cb:
         builder.button(text="💳 Перейти к оплате", callback_data=confirm_cb)
     builder.button(text="◀ Назад", callback_data=back_cb)
