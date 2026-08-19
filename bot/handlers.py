@@ -305,7 +305,9 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await message.answer_photo(
             photo,
             caption=(
-                f"Добро пожаловать в AlienDark 🐈"
+                f"Добро пожаловать в AlienDark 🐈\n\n"
+                f"Наш сервис открывает доступ ко всем ресурсам в интернете "
+                f"и бережно защищает вашу конфиденциальность."
             ),
             reply_markup=main_menu(cfg.has_payment, tg_id in cfg.admin_ids),
         )
@@ -318,7 +320,9 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_menu(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         text = (
-            f"Добро пожаловать в AlienDark 🐈"
+            f"Добро пожаловать в AlienDark 🐈\n\n"
+            f"Наш сервис открывает доступ ко всем ресурсам в интернете "
+            f"и бережно защищает вашу конфиденциальность."
         )
         await _nav(callback, text, main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids), photo_path="bot/start.jpg")
 
