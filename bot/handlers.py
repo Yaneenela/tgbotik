@@ -329,7 +329,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     @router.callback_query(F.data == "help")
     async def cb_help(callback: CallbackQuery):
         text = (
-            "💬 Помощь\n\n"
+            "💬 Помощь — PlaVER\n\n"
             "Выберите ваше устройство для инструкции по установке Happ:"
         )
         await _nav(callback, text, help_keyboard())
