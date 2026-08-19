@@ -70,6 +70,30 @@ class Database:
             await self.conn.commit()
         except Exception:
             pass
+        try:
+            await self.conn.execute("ALTER TABLE subscriptions ADD COLUMN email TEXT")
+            await self.conn.commit()
+        except Exception:
+            pass
+        try:
+            await self.conn.execute("ALTER TABLE transactions ADD COLUMN renew_sub_id INTEGER")
+            await self.conn.commit()
+        except Exception:
+            pass
+        try:
+            await self.conn.execute("ALTER TABLE transactions ADD COLUMN device_count INTEGER DEFAULT 3")
+            await self.conn.commit()
+        except Exception:
+            pass
+        try:
+            await self.conn.execute(
+                "UPDATE subscriptions SET email = 'tg_' || "
+                "(SELECT telegram_id FROM users WHERE users.id = subscriptions.user_id) "
+                "WHERE email IS NULL OR email = ''"
+            )
+            await self.conn.commit()
+        except Exception:
+            pass
 
     async def get_user(self, telegram_id: int) -> Optional[dict]:
         cursor = await self.conn.execute(
@@ -96,14 +120,15 @@ class Database:
         days: int,
         traffic_gb: int,
         device_count: int = 3,
+        email: str = None,
     ) -> dict:
         expired_at = utc_now() + timedelta(days=days)
         total_bytes = traffic_gb * 1024**3 if traffic_gb > 0 else 0
         cursor = await self.conn.execute(
             """INSERT INTO subscriptions
-               (user_id, plan_name, uuid, inbound_id, traffic_total, expired_at, device_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, plan_name, uuid_str, inbound_id, total_bytes, expired_at, device_count),
+               (user_id, plan_name, uuid, inbound_id, traffic_total, expired_at, device_count, email)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, plan_name, uuid_str, inbound_id, total_bytes, expired_at, device_count, email),
         )
         await self.conn.commit()
         return await self.get_subscription(cursor.lastrowid)
@@ -123,6 +148,14 @@ class Database:
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
+    async def get_user_all_subscriptions(self, user_id: int) -> list[dict]:
+        cursor = await self.conn.execute(
+            "SELECT * FROM subscriptions WHERE user_id = ? ORDER BY is_active DESC, created_at DESC",
+            (user_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
     async def add_transaction(
         self,
         user_id: int,
@@ -132,12 +165,14 @@ class Database:
         payment_id: str = None,
         plan_name: str = None,
         status: str = "pending",
+        renew_sub_id: int = None,
+        device_count: int = 3,
     ):
         await self.conn.execute(
             """INSERT INTO transactions
-               (user_id, amount, currency, payment_system, payment_id, plan_name, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, amount, currency, payment_system, payment_id, plan_name, status),
+               (user_id, amount, currency, payment_system, payment_id, plan_name, status, renew_sub_id, device_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, amount, currency, payment_system, payment_id, plan_name, status, renew_sub_id, device_count),
         )
         await self.conn.commit()
 
