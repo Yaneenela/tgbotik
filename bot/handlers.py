@@ -718,7 +718,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         plan = cfg.plans[int(plan_idx)]
         sub = await db.get_subscription(int(sub_id))
         current_devices = sub["device_count"] if sub else 3
-        await state.update_data(plan_index=int(plan_idx), renew_sub_id=int(sub_id))
+        renew_sub_id = int(sub_id) if sub else None
+        await state.update_data(plan_index=int(plan_idx), renew_sub_id=renew_sub_id)
         text = (
             f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
