@@ -241,6 +241,10 @@ async def scheduler(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
                 except Exception:
                     pass
 
+            removed = await db.delete_old_expired_subs(days=5)
+            if removed:
+                logger.info(f"Deleted {removed} subscriptions expired more than 5 days ago")
+
             expiring = await db.get_expiring_subs(within_days=3)
             for sub in expiring:
                 expired_dt = datetime.fromisoformat(sub["expired_at"])

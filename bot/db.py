@@ -234,6 +234,16 @@ class Database:
         )
         await self.conn.commit()
 
+    async def delete_old_expired_subs(self, days: int):
+        cutoff = utc_now() - timedelta(days=days)
+        cursor = await self.conn.execute(
+            "DELETE FROM subscriptions WHERE is_active = 0 "
+            "AND expired_at IS NOT NULL AND expired_at < ?",
+            (str(cutoff),),
+        )
+        await self.conn.commit()
+        return cursor.rowcount
+
     async def get_active_sub_by_user_and_plan(self, user_id: int, plan_name: str) -> Optional[dict]:
         cursor = await self.conn.execute(
             "SELECT * FROM subscriptions WHERE user_id = ? AND plan_name = ? AND is_active = 1 LIMIT 1",
