@@ -416,7 +416,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         await state.update_data(plan_index=idx)
 
         text = (
-            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
@@ -435,9 +435,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         total = calc_total_price(plan, device_count)
         await state.update_data(device_count=device_count, total_price=total)
         text = (
-            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
-            f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
+            f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n"
+            f"💵 Итого: {total} руб\n\n"
             f"Выберите количество устройств:"
         )
         await _nav(callback, text, device_count_keyboard(current=device_count, confirm_cb="confirm_device"))
@@ -454,7 +455,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         plan = cfg.plans[idx]
         total = calc_total_price(plan, device_count)
         text = (
-            f"💡 Тариф: {plan.days} дней | Безлимит ♾\n"
+            f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"📱 Устройств: {device_count}\n"
             f"💵 Сумма: {total} руб\n\n"
             f"Выберите способ оплаты:"
