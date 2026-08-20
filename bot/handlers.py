@@ -515,6 +515,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             description=f"{plan.name} ({device_count} уст.)",
             return_url=f"https://t.me/{bot_username}",
             payload=f"tg:{tg_id}:{plan.name}",
+            metadata={
+                "userId": str(tg_id),
+                "userName": f"@{callback.from_user.username}" if callback.from_user.username else str(tg_id),
+            },
         )
 
         if not payment:
@@ -648,8 +652,16 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         paid = False
         if method == "platega" and platega:
             tx = await platega.check_payment(pay_id)
-            if tx and tx.status == "CONFIRMED":
-                paid = True
+            if tx:
+                if tx.status == "CONFIRMED":
+                    paid = True
+                elif tx.status in ("CANCELED", "CHARGEBACKED"):
+                    await db.update_transaction(pay_id, "failed")
+                    await callback.answer(
+                        "Платёж был отменён или возвращён. Создайте новый платёж.",
+                        show_alert=True,
+                    )
+                    return
         elif method == "crypto" and crypto:
             invoice = await crypto.check_invoice(int(pay_id))
             if invoice and invoice.status == "paid":
@@ -1021,6 +1033,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                 description=f"+{extra} уст. | {sub['plan_name']} | @{callback.from_user.username or tg_id}",
                 return_url=f"https://t.me/{cfg.bot_username or 'bot'}",
                 payload=f"upgrade:{sub_id}",
+                metadata={
+                    "userId": str(tg_id),
+                    "userName": f"@{callback.from_user.username}" if callback.from_user.username else str(tg_id),
+                },
             )
             if payment:
                 user = await db.get_user(tg_id)

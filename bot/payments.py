@@ -39,6 +39,7 @@ class Platega:
         description: str = "",
         return_url: str = "",
         payload: str = "",
+        metadata: dict = None,
     ) -> Optional[PlategaTransaction]:
         body = {
             "paymentMethod": payment_method,
@@ -52,6 +53,8 @@ class Platega:
         }
         if payload:
             body["payload"] = payload
+        if metadata:
+            body["metadata"] = metadata
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"{self.base}transaction/process",
