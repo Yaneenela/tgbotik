@@ -384,7 +384,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_help(callback: CallbackQuery):
         text = (
             "💬 Помощь\n\n"
-            "Выберите ваше устройство для инструкции по установке Happ:"
+            "Выберите ваше устройство для инструкции по установке Happ / Incy:"
         )
         await _nav(callback, text, help_keyboard())
 
