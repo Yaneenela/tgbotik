@@ -94,6 +94,22 @@ class Platega:
                 amount=amount,
             )
 
+    async def cancel_payment(self, transaction_id: str) -> Optional[dict]:
+        headers = {**self.headers, "Accept": "text/plain"}
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.post(
+                    f"{self.base}transaction/{transaction_id}/cancel",
+                    headers=headers,
+                )
+                if resp.status_code != 200:
+                    logger.error(f"Platega cancel failed: {resp.status_code} {resp.text}")
+                    return None
+                return resp.json()
+        except Exception as e:
+            logger.error(f"Platega cancel error: {e}")
+            return None
+
 
 @dataclass
 class CryptoInvoice:

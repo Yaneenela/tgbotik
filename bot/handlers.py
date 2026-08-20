@@ -659,13 +659,53 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         )
 
     @router.callback_query(F.data == "cancel_pay")
-    async def cb_cancel_pay(callback: CallbackQuery, state: FSMContext):
+    async def cb_cancel_pay(callback: CallbackQuery, state: FSMContext, bot: Bot):
         data = await state.get_data()
         payment_id = data.get("payment_id")
+        method = data.get("payment_method")
+        note = ""
+
+        if payment_id and method == "platega" and platega:
+            try:
+                tx = await platega.check_payment(payment_id)
+                if tx and tx.status == "CONFIRMED":
+                    user = await db.get_user(callback.from_user.id)
+                    own = await db.get_transaction_by_payment(payment_id, user["id"]) if user else None
+                    idx = data.get("plan_index")
+                    if user and own and idx is not None and idx < len(cfg.plans):
+                        device_count = own.get("device_count", 3) or 3
+                        renew_sub_id = own.get("renew_sub_id")
+                        ok = await _process_payment(
+                            cfg, db, xui, bot, callback.from_user.id,
+                            cfg.plans[idx], payment_id, device_count, renew_sub_id,
+                        )
+                        if ok:
+                            await db.update_transaction(payment_id, "completed")
+                            await state.clear()
+                            await _nav(callback,
+                                "✅ Платёж был оплачен до отмены — подписка активирована!",
+                                main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids),
+                            )
+                            return
+                else:
+                    res = await platega.cancel_payment(payment_id)
+                    if res:
+                        if res.get("accepted"):
+                            note = "Счёт в Platega закрыт."
+                        else:
+                            note = ("Platega примет отмену вручную. Если платёж был совершён — "
+                                    "напишите в поддержку.")
+            except Exception as e:
+                logger.error(f"Platega cancel error: {e}")
+                note = "Не удалось связаться с Platega. Если платёж был совершён — напишите в поддержку."
+
         if payment_id:
             await db.update_transaction(payment_id, "canceled")
         await state.clear()
-        text = "❌ Оплата отменена.\n\nДобро пожаловать в AlienDark 🐈"
+        text = "❌ Оплата отменена."
+        if note:
+            text += f"\n\n{note}"
+        text += "\n\nДобро пожаловать в AlienDark 🐈"
         await _nav(
             callback,
             text,
