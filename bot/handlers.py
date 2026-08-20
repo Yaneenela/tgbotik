@@ -62,7 +62,7 @@ async def _process_payment(
     if renew_sub_id:
         sub = await db.get_subscription(renew_sub_id)
         if not sub or sub["user_id"] != user["id"]:
-            return
+            return False
         remaining_days = 0
         if sub.get("expired_at"):
             try:
@@ -76,7 +76,7 @@ async def _process_payment(
         except Exception as e:
             logger.error(f"3x-UI extend error: {e}")
             await bot.send_message(tg_id, f"Ошибка продления: {e}")
-            return
+            return False
         await db.extend_expiry(sub["id"], plan.days)
         await db.update_sub_device_count(sub["id"], device_count)
         client_uuid = sub["uuid"]
@@ -94,7 +94,7 @@ async def _process_payment(
         except Exception as e:
             logger.error(f"3x-UI create client error: {e}")
             await bot.send_message(tg_id, f"Ошибка создания клиента: {e}")
-            return
+            return False
         await db.add_subscription(
             user_id=user["id"],
             plan_name=plan.name,
@@ -148,6 +148,7 @@ async def _process_payment(
             )
         except Exception:
             pass
+    return True
 
 
 async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot: Bot):
@@ -169,14 +170,25 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
                     and utc_now() - created > timedelta(minutes=15 if row["payment_system"] == "platega" else 5)
                 )
 
-                plan = next((p for p in cfg.plans if p.name == row["plan_name"]), None)
-                if not plan:
-                    continue
-
                 paid = False
                 if row["payment_system"] == "platega" and platega:
                     tx = await platega.check_payment(row["payment_id"])
                     if tx and tx.status == "CONFIRMED":
+                        try:
+                            paid_amount = float(tx.amount) if tx.amount else 0.0
+                        except Exception:
+                            paid_amount = 0.0
+                        if paid_amount and abs(paid_amount - row["amount"]) > 1:
+                            await db.update_transaction(row["payment_id"], "failed")
+                            try:
+                                await bot.send_message(
+                                    row["telegram_id"],
+                                    "⚠️ Сумма платежа не совпадает с суммой заказа. "
+                                    "Подписка не активирована — напишите в поддержку.",
+                                )
+                            except Exception:
+                                pass
+                            continue
                         paid = True
                 elif row["payment_system"] == "cryptobot" and crypto:
                     invoice = await crypto.check_invoice(int(row["payment_id"]))
@@ -199,11 +211,37 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
                     rowcount = (await cursor2.fetchone())[0]
                     if rowcount == 0:
                         continue
-                    await _process_payment(
-                        cfg, db, xui, bot, row["telegram_id"], plan, row["payment_id"],
-                        device_count=row.get("device_count", 3) or 3,
-                        renew_sub_id=row.get("renew_sub_id"),
-                    )
+                    ok = False
+                    try:
+                        if row["plan_name"] and row["plan_name"].startswith("upgrade_"):
+                            sub_id = int(row["plan_name"].split("_", 1)[1])
+                            sub = await db.get_subscription(sub_id)
+                            if sub and sub["user_id"] == row["user_id"]:
+                                new_count = row.get("device_count", 3) or 3
+                                remaining_days = 0
+                                if sub.get("expired_at"):
+                                    try:
+                                        expiry_dt = datetime.fromisoformat(sub["expired_at"])
+                                        remaining_days = int(max(0, (expiry_dt - utc_now()).total_seconds() // 86400))
+                                    except Exception:
+                                        remaining_days = 0
+                                email = sub.get("email") or f"tg_{row['telegram_id']}"
+                                await xui.update_client_expiry(sub["uuid"], email, remaining_days, new_count)
+                                await db.update_sub_device_count(sub_id, new_count)
+                                ok = True
+                        else:
+                            plan = next((p for p in cfg.plans if p.name == row["plan_name"]), None)
+                            if plan:
+                                ok = await _process_payment(
+                                    cfg, db, xui, bot, row["telegram_id"], plan, row["payment_id"],
+                                    device_count=row.get("device_count", 3) or 3,
+                                    renew_sub_id=row.get("renew_sub_id"),
+                                )
+                    except Exception as e:
+                        logger.error(f"Auto-confirm error for {row['payment_id']}: {e}")
+                    if not ok:
+                        await db.update_transaction(row["payment_id"], "pending")
+                        continue
                     await db.update_transaction(row["payment_id"], "completed")
                     try:
                         await bot.send_message(
@@ -640,6 +678,9 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         parts = callback.data.split(":")
         _, method, pay_id, idx_str = parts
         idx = int(idx_str)
+        if idx >= len(cfg.plans):
+            await callback.answer("Тариф изменился. Начните выбор заново.", show_alert=True)
+            return
         plan = cfg.plans[idx]
         tg_id = callback.from_user.id
 
@@ -654,6 +695,17 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             tx = await platega.check_payment(pay_id)
             if tx:
                 if tx.status == "CONFIRMED":
+                    try:
+                        paid_amount = float(tx.amount) if tx.amount else 0.0
+                    except Exception:
+                        paid_amount = 0.0
+                    if paid_amount and abs(paid_amount - own["amount"]) > 1:
+                        await db.update_transaction(pay_id, "failed")
+                        await callback.answer(
+                            "Сумма платежа не совпадает с суммой заказа. Напишите в поддержку.",
+                            show_alert=True,
+                        )
+                        return
                     paid = True
                 elif tx.status in ("CANCELED", "CHARGEBACKED"):
                     await db.update_transaction(pay_id, "failed")
@@ -668,8 +720,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                 paid = True
 
         data = await state.get_data()
-        device_count = data.get("device_count", 3)
-        renew_sub_id = data.get("renew_sub_id")
+        device_count = own.get("device_count", 3) or 3
+        renew_sub_id = own.get("renew_sub_id") or data.get("renew_sub_id")
 
         if paid:
             await db.conn.execute(
@@ -682,7 +734,18 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             if rowcount == 0:
                 await callback.answer("Платеж уже обрабатывается", show_alert=True)
                 return
-            await _process_payment(cfg, db, xui, bot, tg_id, plan, pay_id, device_count, renew_sub_id)
+            ok = False
+            try:
+                ok = await _process_payment(cfg, db, xui, bot, tg_id, plan, pay_id, device_count, renew_sub_id)
+            except Exception as e:
+                logger.error(f"Payment activation error: {e}")
+            if not ok:
+                await db.update_transaction(pay_id, "pending")
+                await callback.answer(
+                    "Не удалось активировать подписку. Попробуйте оплату ещё раз позже или используйте «Я оплатил».",
+                    show_alert=True,
+                )
+                return
             await db.update_transaction(pay_id, "completed")
             await callback.message.edit_text(
                 f"✅ Оплата подтверждена!\n\n"
@@ -761,12 +824,14 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         for s in subs:
             expired = datetime.fromisoformat(s["expired_at"]) if s.get("expired_at") else None
             expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "бессрочно"
+            days_left = max(0, (expired - utc_now()).days) if expired else None
+            days_txt = f" (осталось {days_left} дн.)" if expired and days_left else ""
             sub_url = cfg.make_sub_url(s["uuid"])
             devices = s.get("device_count", 3)
             status = "✅ Активна" if s["is_active"] else "⚠️ Истекла"
             text_parts.append(
                 f"\n▶ {s['plan_name']} — {status}\n"
-                f"📅 До: {expired_str}\n"
+                f"📅 До: {expired_str}{days_txt}\n"
                 f"📱 Устройств: {devices}\n"
                 f"🔗 <code>{sub_url}</code>\n"
             )
@@ -847,6 +912,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
             return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
+            return
         current = sub.get("device_count", 3)
         email = sub.get("email") or f"tg_{callback.from_user.id}"
         ips = await xui.get_client_ips(email)
@@ -864,6 +933,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
             return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
+            return
         current = sub.get("device_count", 3)
         await _nav(callback,
             f"💡 {sub['plan_name']}\n"
@@ -880,6 +953,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         sub = await db.get_subscription(sub_id)
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
+            return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
             return
         email = sub.get("email") or f"tg_{callback.from_user.id}"
         ips = await xui.get_client_ips(email)
@@ -902,6 +979,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         sub = await db.get_subscription(sub_id)
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
+            return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
             return
         email = sub.get("email") or f"tg_{callback.from_user.id}"
         try:
@@ -926,6 +1007,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
             return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
+            return
         await db.update_sub_device_count(sub_id, new_count)
         try:
             remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - utc_now()).days) if sub.get("expired_at") else 0
@@ -946,6 +1031,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
             return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
+            return
         current = sub.get("device_count", 3)
         text = (
             f"📱 Изменение лимита устройств\n\n"
@@ -962,6 +1051,10 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         sub = await db.get_subscription(sub_id)
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
+            return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
             return
         current = sub.get("device_count", 3)
         if new_count == current:
@@ -1010,6 +1103,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                         payment_system="cryptobot",
                         payment_id=str(invoice.invoice_id),
                         plan_name=f"upgrade_{sub_id}",
+                        device_count=new_count,
                     )
 
                     await callback.message.edit_text(
@@ -1047,6 +1141,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                     payment_system="platega",
                     payment_id=payment.transaction_id,
                     plan_name=f"upgrade_{sub_id}",
+                    device_count=new_count,
                 )
 
                 await callback.message.edit_text(
@@ -1106,18 +1201,26 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
             return
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
+            return
 
         await db.conn.execute(
             "UPDATE transactions SET status = 'processing' WHERE payment_id = ? AND status = 'pending'",
             (str(invoice_id),),
         )
         await db.conn.commit()
+        cursor2 = await db.conn.execute("SELECT changes()")
+        if (await cursor2.fetchone())[0] == 0:
+            await callback.answer("Платёж уже обрабатывается.", show_alert=True)
+            return
 
         await db.update_sub_device_count(sub_id, new_count)
         try:
             remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - utc_now()).days) if sub.get("expired_at") else 0
             await xui.update_client_expiry(sub["uuid"], sub.get("email") or f"tg_{tg_id}", remaining_days, new_count)
         except Exception as e:
+            await db.update_transaction(str(invoice_id), "pending")
             await _nav(callback, f"Ошибка 3x-UI: {e}", back_button())
             return
 
@@ -1155,9 +1258,24 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             await callback.answer("⏳ Оплата ещё не найдена. Попробуйте позже.", show_alert=True)
             return
 
+        try:
+            paid_amount = float(tx.amount) if tx.amount else 0.0
+        except Exception:
+            paid_amount = 0.0
+        if paid_amount and abs(paid_amount - own["amount"]) > 1:
+            await db.update_transaction(transaction_id, "failed")
+            await callback.answer(
+                "Сумма платежа не совпадает с суммой заказа. Напишите в поддержку.",
+                show_alert=True,
+            )
+            return
+
         sub = await db.get_subscription(sub_id)
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
+            return
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
             return
 
         await db.conn.execute(
@@ -1165,12 +1283,17 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             (transaction_id,),
         )
         await db.conn.commit()
+        cursor2 = await db.conn.execute("SELECT changes()")
+        if (await cursor2.fetchone())[0] == 0:
+            await callback.answer("Платёж уже обрабатывается.", show_alert=True)
+            return
 
         await db.update_sub_device_count(sub_id, new_count)
         try:
             remaining_days = max(0, (datetime.fromisoformat(sub["expired_at"]) - utc_now()).days) if sub.get("expired_at") else 0
             await xui.update_client_expiry(sub["uuid"], sub.get("email") or f"tg_{tg_id}", remaining_days, new_count)
         except Exception as e:
+            await db.update_transaction(transaction_id, "pending")
             await _nav(callback, f"Ошибка 3x-UI: {e}", back_button())
             return
 
@@ -1239,7 +1362,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         sent = 0
         for u in users:
             try:
-                await bot.send_message(u["telegram_id"], text)
+                await bot.send_message(u["telegram_id"], text, parse_mode=None)
                 sent += 1
             except Exception:
                 pass
@@ -1473,11 +1596,13 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         for s in subs:
             expired = datetime.fromisoformat(s["expired_at"]) if s.get("expired_at") else None
             expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "бессрочно"
+            days_left = max(0, (expired - utc_now()).days) if expired else None
+            days_txt = f" (осталось {days_left} дн.)" if expired and days_left else ""
             sub_url = cfg.make_sub_url(s["uuid"])
             devices = s.get("device_count", 3)
             await message.answer(
                 f"▶ {s['plan_name']}\n"
-                f"📅 До: {expired_str}\n"
+                f"📅 До: {expired_str}{days_txt}\n"
                 f"📱 Устройств: {devices}\n"
                 f"🔗 <code>{sub_url}</code>"
             )
@@ -1505,7 +1630,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         sent = 0
         for u in users:
             try:
-                await bot.send_message(u["telegram_id"], text)
+                await bot.send_message(u["telegram_id"], text, parse_mode=None)
                 sent += 1
             except Exception:
                 pass
