@@ -475,7 +475,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_select_plan(callback: CallbackQuery, state: FSMContext):
         idx = int(callback.data.split(":")[1])
         plan = cfg.plans[idx]
-        await state.update_data(plan_index=idx, renew_sub_id=None)
+        await state.update_data(plan_index=idx, renew_sub_id=None, device_count=3)
 
         text = (
             f"💡 Тариф: {plan.days} дней | Безлимит\n"
@@ -802,7 +802,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         sub = await db.get_subscription(int(sub_id))
         current_devices = sub["device_count"] if sub else 3
         renew_sub_id = int(sub_id) if sub else None
-        await state.update_data(plan_index=int(plan_idx), renew_sub_id=renew_sub_id)
+        await state.update_data(plan_index=int(plan_idx), renew_sub_id=renew_sub_id, device_count=current_devices)
         text = (
             f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
