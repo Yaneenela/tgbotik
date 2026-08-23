@@ -74,10 +74,13 @@ class XUIManager:
         updated = Client(
             id=client_uuid,
             email=email,
-            expiry_time=new_expiry,
-            enable=True,
             flow="xtls-rprx-vision",
             limit_ip=device_count,
+            total_gb=0,
+            expiry_time=new_expiry,
+            enable=True,
+            tg_id="",
+            sub_id=client_uuid,
         )
         await self._call(self.api.client.update, client_uuid, updated)
 

@@ -84,26 +84,30 @@ class Platega:
         return None
 
     async def check_payment(self, transaction_id: str) -> Optional[PlategaTransaction]:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"{self.base}transaction/{transaction_id}",
-                headers=self.headers,
-            )
-            if resp.status_code != 200:
-                return None
-            data = resp.json()
-            amount = ""
-            details = data.get("paymentDetails")
-            if isinstance(details, dict):
-                amount = str(details.get("amount", ""))
-            elif isinstance(details, str):
-                amount = details
-            return PlategaTransaction(
-                transaction_id=data["id"],
-                redirect_url=data.get("payformSuccessUrl", ""),
-                status=data.get("status", "PENDING"),
-                amount=amount,
-            )
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    f"{self.base}transaction/{transaction_id}",
+                    headers=self.headers,
+                )
+        except Exception as e:
+            logger.error(f"Platega checkPayment error: {e}")
+            return None
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        amount = ""
+        details = data.get("paymentDetails")
+        if isinstance(details, dict):
+            amount = str(details.get("amount", ""))
+        elif isinstance(details, str):
+            amount = details
+        return PlategaTransaction(
+            transaction_id=data["id"],
+            redirect_url=data.get("payformSuccessUrl", ""),
+            status=data.get("status", "PENDING"),
+            amount=amount,
+        )
 
     async def cancel_payment(self, transaction_id: str) -> Optional[dict]:
         headers = {**self.headers, "Accept": "text/plain"}
@@ -184,19 +188,23 @@ class CryptoBot:
             return None
 
     async def check_invoice(self, invoice_id: int) -> Optional[CryptoInvoice]:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{self.base}/getInvoices",
-                headers=self.headers,
-                params={"invoice_ids": str(invoice_id)},
-            )
-            data = resp.json()
-            if data.get("ok") and data.get("result", {}).get("items"):
-                item = data["result"]["items"][0]
-                return CryptoInvoice(
-                    invoice_id=item["invoice_id"],
-                    pay_url=item.get("pay_url", ""),
-                    status=item["status"],
-                    amount=item["amount"],
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{self.base}/getInvoices",
+                    headers=self.headers,
+                    params={"invoice_ids": str(invoice_id)},
                 )
+                data = resp.json()
+        except Exception as e:
+            logger.error(f"CryptoBot getInvoices error: {e}")
             return None
+        if data.get("ok") and data.get("result", {}).get("items"):
+            item = data["result"]["items"][0]
+            return CryptoInvoice(
+                invoice_id=item["invoice_id"],
+                pay_url=item.get("pay_url", ""),
+                status=item["status"],
+                amount=item["amount"],
+            )
+        return None

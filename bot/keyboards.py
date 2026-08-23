@@ -85,10 +85,6 @@ def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str
     return builder.as_markup()
 
 
-def edit_device_keyboard(sub_id: int, current: int = 3) -> InlineKeyboardMarkup:
-    return device_count_keyboard(current, f"devedit:{sub_id}", f"edit_dev_sub:{sub_id}")
-
-
 def device_mgmt_keyboard(sub_id: int, current: int = 3, ips: list[str] = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if ips:
