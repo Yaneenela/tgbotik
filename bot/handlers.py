@@ -160,15 +160,16 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
         try:
             cursor = await db.conn.execute(
                 "SELECT t.*, u.telegram_id FROM transactions t JOIN users u ON t.user_id = u.id "
-                "WHERE t.status = 'pending'"
+                "WHERE t.status IN ('pending', 'canceled')"
             )
-            rows = await cursor.fetchall()
+            rows = [dict(r) for r in await cursor.fetchall()]
             for row in rows:
                 created = datetime.fromisoformat(row["created_at"]) if row.get("created_at") else None
                 overdue = bool(
                     created
                     and utc_now() - created > timedelta(minutes=15 if row["payment_system"] == "platega" else 5)
                 )
+                was_canceled = row["status"] == "canceled"
 
                 paid = False
                 if row["payment_system"] == "platega" and platega:
@@ -196,12 +197,13 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
                         paid = True
 
                 if not paid and overdue:
-                    await db.update_transaction(row["payment_id"], "failed")
+                    if not was_canceled:
+                        await db.update_transaction(row["payment_id"], "failed")
                     continue
 
                 if paid:
                     await db.conn.execute(
-                        "UPDATE transactions SET status = 'processing' WHERE payment_id = ? AND status = 'pending'",
+                        "UPDATE transactions SET status = 'processing' WHERE payment_id = ? AND status IN ('pending', 'canceled')",
                         (row["payment_id"],),
                     )
                     await db.conn.commit()
@@ -240,13 +242,15 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
                     except Exception as e:
                         logger.error(f"Auto-confirm error for {row['payment_id']}: {e}")
                     if not ok:
-                        await db.update_transaction(row["payment_id"], "pending")
+                        await db.update_transaction(row["payment_id"], "canceled" if was_canceled else "pending")
                         continue
                     await db.update_transaction(row["payment_id"], "completed")
                     try:
                         await bot.send_message(
                             row["telegram_id"],
-                            "✅ Оплата подтверждена! Подписка активирована.",
+                            "✅ Оплата прошла после отмены счёта — подписка активирована!"
+                            if was_canceled
+                            else "✅ Оплата подтверждена! Подписка активирована.",
                         )
                     except Exception:
                         pass
@@ -561,6 +565,16 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
 
         if not payment:
             await _nav(callback, "Ошибка создания платежа. Попробуйте позже.", back_button())
+            err_detail = getattr(platega, "last_error", "") or "нет деталей"
+            for admin_id in cfg.admin_ids:
+                try:
+                    await bot.send_message(
+                        admin_id,
+                        f"⚠️ Platega: не удалось создать платёж для {tg_id}\n{err_detail}",
+                        disable_notification=True,
+                    )
+                except Exception:
+                    pass
             return
 
         user = await db.get_user(tg_id)
@@ -663,7 +677,6 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         data = await state.get_data()
         payment_id = data.get("payment_id")
         method = data.get("payment_method")
-        note = ""
 
         if payment_id and method == "platega" and platega:
             try:
@@ -687,25 +700,18 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                                 main_menu(cfg.has_payment, callback.from_user.id in cfg.admin_ids),
                             )
                             return
-                else:
-                    res = await platega.cancel_payment(payment_id)
-                    if res:
-                        if res.get("accepted"):
-                            note = "Счёт в Platega закрыт."
-                        else:
-                            note = ("Platega примет отмену вручную. Если платёж был совершён — "
-                                    "напишите в поддержку.")
             except Exception as e:
-                logger.error(f"Platega cancel error: {e}")
-                note = "Не удалось связаться с Platega. Если платёж был совершён — напишите в поддержку."
+                logger.error(f"Platega cancel check error: {e}")
 
         if payment_id:
             await db.update_transaction(payment_id, "canceled")
         await state.clear()
-        text = "❌ Оплата отменена."
-        if note:
-            text += f"\n\n{note}"
-        text += "\n\nДобро пожаловать в AlienDark 🐈"
+        text = (
+            "❌ Оплата отменена.\n\n"
+            "Если счёт не был оплачен — он закроется сам на стороне платёжной системы. "
+            "Оплачивать по нему больше не нужно.\n\n"
+            "Добро пожаловать в AlienDark 🐈"
+        )
         await _nav(
             callback,
             text,

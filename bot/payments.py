@@ -31,6 +31,7 @@ class Platega:
             "X-Secret": secret,
             "Content-Type": "application/json",
         }
+        self.last_error: str = ""
 
     async def create_payment(
         self,
@@ -55,22 +56,32 @@ class Platega:
             body["payload"] = payload
         if metadata:
             body["metadata"] = metadata
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{self.base}transaction/process",
-                headers=self.headers,
-                json=body,
-            )
-            if resp.status_code != 200:
-                logger.error(f"Platega createPayment failed: {resp.status_code} {resp.text}")
-                return None
-            data = resp.json()
-            return PlategaTransaction(
-                transaction_id=data["transactionId"],
-                redirect_url=data["redirect"],
-                status=data.get("status", "PENDING"),
-                amount=str(data.get("paymentDetails", amount)),
-            )
+        self.last_error = ""
+        async with httpx.AsyncClient(timeout=30) as client:
+            for attempt in range(2):
+                try:
+                    resp = await client.post(
+                        f"{self.base}transaction/process",
+                        headers=self.headers,
+                        json=body,
+                    )
+                except Exception as e:
+                    self.last_error = f"network: {e}"
+                    logger.error(f"Platega createPayment error (attempt {attempt + 1}): {e}")
+                    continue
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return PlategaTransaction(
+                        transaction_id=data["transactionId"],
+                        redirect_url=data["redirect"],
+                        status=data.get("status", "PENDING"),
+                        amount=str(data.get("paymentDetails", amount)),
+                    )
+                self.last_error = f"{resp.status_code} {resp.text[:300]}"
+                logger.error(f"Platega createPayment failed: {self.last_error}")
+                if resp.status_code < 500:
+                    break
+        return None
 
     async def check_payment(self, transaction_id: str) -> Optional[PlategaTransaction]:
         async with httpx.AsyncClient(timeout=15) as client:
