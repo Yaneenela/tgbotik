@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import os
-import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -15,14 +13,20 @@ from bot.db import Database
 from bot.xui import XUIManager
 from bot.handlers import create_router, check_pending_payments, scheduler, sync_subscriptions
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+_bg_tasks: set = set()
+
+
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 async def main():
@@ -45,12 +49,17 @@ async def main():
     logger.info("Database connected")
 
     xui = XUIManager(cfg.xui_url, cfg.xui_username, cfg.xui_password)
-    try:
-        inbounds = await xui.get_inbounds()
-        logger.info(f"Connected to 3x-UI, found {len(inbounds)} inbounds")
-    except Exception as e:
-        logger.error(f"Failed to connect to 3x-UI: {e}")
-        return
+    inbounds = []
+    for attempt in range(1, 6):
+        try:
+            inbounds = await xui.get_inbounds()
+            break
+        except Exception as e:
+            logger.error(f"3x-UI connection attempt {attempt}/5 failed: {e}")
+            if attempt == 5:
+                return
+            await asyncio.sleep(10)
+    logger.info(f"Connected to 3x-UI, found {len(inbounds)} inbounds")
 
     await sync_subscriptions(cfg, db, xui)
 
@@ -64,11 +73,17 @@ async def main():
     dp = Dispatcher()
     dp.include_router(create_router(cfg, db, xui))
 
-    asyncio.create_task(check_pending_payments(cfg, db, xui, bot))
-    asyncio.create_task(scheduler(cfg, db, xui, bot))
+    await bot.delete_webhook(drop_pending_updates=True)
+    _spawn(check_pending_payments(cfg, db, xui, bot))
+    _spawn(scheduler(cfg, db, xui, bot))
 
     logger.info("Starting bot polling...")
-    await dp.start_polling(bot, db=db, cfg=cfg, xui=xui)
+    try:
+        await dp.start_polling(bot, db=db, cfg=cfg, xui=xui)
+    finally:
+        for t in list(_bg_tasks):
+            t.cancel()
+        await db.close()
 
 
 if __name__ == "__main__":
