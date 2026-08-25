@@ -22,7 +22,8 @@ class XUIManager:
             return await asyncio.to_thread(func, *args, **kwargs)
         except Exception:
             self._logged_in = False
-            raise
+            await self._ensure_login()
+            return await asyncio.to_thread(func, *args, **kwargs)
 
     async def get_inbounds(self) -> list[Inbound]:
         return await self._call(self.api.inbound.get_list)

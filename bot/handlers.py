@@ -161,7 +161,7 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
             cursor = await db.conn.execute(
                 "SELECT t.*, u.telegram_id FROM transactions t JOIN users u ON t.user_id = u.id "
                 "WHERE t.status IN ('pending', 'canceled', 'failed') "
-                "AND t.created_at > datetime('now', '-2 days')"
+                "AND t.created_at > datetime('now', '-90 minutes')"
             )
             rows = [dict(r) for r in await cursor.fetchall()]
             for row in rows:
@@ -788,46 +788,57 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not user or sub["user_id"] != user["id"]:
             await callback.answer("Это не ваша подписка.", show_alert=True)
             return
-        plan_idx = next((i for i, p in enumerate(cfg.plans) if p.name == sub["plan_name"]), None)
-        if plan_idx is None:
-            await _nav(callback, "Тариф этой подписки больше недоступен.", back_button("my_subs"))
+        if not cfg.plans:
+            await _nav(callback, "Нет доступных тарифов.", back_button("my_subs"))
             return
-        plan = cfg.plans[plan_idx]
-        current_devices = sub.get("device_count", 3)
         renew_sub_id = sub_id if sub["is_active"] else None
-        await state.update_data(
-            plan_index=plan_idx,
-            renew_sub_id=renew_sub_id,
-            device_count=current_devices,
+        await state.update_data(renew_sub_id=renew_sub_id)
+        await _nav(
+            callback,
+            "🔄 Продление подписки\n\nВыберите срок:",
+            plans_keyboard(cfg.plans, "renew_plan"),
+            photo_path="bot/tariffs.jpg",
         )
+
+    @router.callback_query(F.data.startswith("renew_plan:"))
+    async def cb_renew_plan(callback: CallbackQuery, state: FSMContext):
+        idx = int(callback.data.split(":")[1])
+        if idx < 0 or idx >= len(cfg.plans):
+            await _nav(callback, "Тарифы изменились. Откройте профиль заново.", back_button("my_subs"))
+            return
+        data = await state.get_data()
+        renew_sub_id = data.get("renew_sub_id")
+        device_default = 3
+        if renew_sub_id:
+            rsub = await db.get_subscription(int(renew_sub_id))
+            if rsub:
+                device_default = rsub.get("device_count", 3) or 3
+        plan = cfg.plans[idx]
+        await state.update_data(plan_index=idx, device_count=device_default)
         text = (
             f"💡 Тариф: {plan.days} дней | Безлимит\n"
             f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
             f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
             f"Выберите количество устройств:"
         )
-        await _nav(callback, text, device_count_keyboard(current_devices, confirm_cb="confirm_device"))
+        await _nav(callback, text, device_count_keyboard(device_default, confirm_cb="confirm_device", back_cb="my_subs"))
 
     @router.callback_query(F.data.startswith("renew:"))
     async def cb_renew(callback: CallbackQuery, state: FSMContext):
         parts = callback.data.split(":")
-        _, sub_id, plan_idx = parts
-        idx = int(plan_idx)
-        if idx < 0 or idx >= len(cfg.plans):
-            await _nav(callback, "Тарифы изменились. Выберите тариф заново.", back_button())
+        sub_id = int(parts[1])
+        if not cfg.plans:
+            await _nav(callback, "Нет доступных тарифов.", back_button())
             return
-        plan = cfg.plans[idx]
-        sub = await db.get_subscription(int(sub_id))
-        current_devices = sub["device_count"] if sub else 3
-        renew_sub_id = int(sub_id) if sub else None
-        await state.update_data(plan_index=idx, renew_sub_id=renew_sub_id, device_count=current_devices)
-        text = (
-            f"💡 Тариф: {plan.days} дней | Безлимит\n"
-            f"💰 Базовая цена: {plan.price} руб (до {plan.base_devices} устройств)\n"
-            f"➕ Доп. устройство: +{plan.extra_device_price} руб/шт\n\n"
-            f"Выберите количество устройств:"
+        sub = await db.get_subscription(sub_id)
+        renew_sub_id = sub_id if sub else None
+        await state.update_data(renew_sub_id=renew_sub_id)
+        await _nav(
+            callback,
+            "🔄 Продление подписки\n\nВыберите срок:",
+            plans_keyboard(cfg.plans, "renew_plan"),
+            photo_path="bot/tariffs.jpg",
         )
-        await _nav(callback, text, device_count_keyboard(current_devices, confirm_cb="confirm_device"))
 
     @router.callback_query(F.data == "my_subs")
     async def cb_my_subs(callback: CallbackQuery):
