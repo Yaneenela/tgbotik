@@ -85,12 +85,28 @@ def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str
     return builder.as_markup()
 
 
-def device_mgmt_keyboard(sub_id: int, current: int = 3, ips: list[str] = None) -> InlineKeyboardMarkup:
+def _device_label(dev: dict) -> str:
+    model = dev.get("deviceModel") or ""
+    os_name = dev.get("deviceOs") or dev.get("osVersion") or ""
+    label = " / ".join(p.strip() for p in (os_name, model) if p.strip())
+    if not label:
+        ua = dev.get("userAgent") or ""
+        label = ua[:24]
+    return label or "Неизвестное устройство"
+
+
+def device_mgmt_keyboard(sub_id: int, current: int = 3, devices: list[dict] = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if ips:
-        for i, ip in enumerate(ips):
-            builder.button(text=f"🌐 {ip}  🔌", callback_data=f"dsc_ip:{sub_id}:{i}")
-    builder.button(text="📱 Изменить лимит", callback_data=f"edit_dev_upgrade:{sub_id}")
+    for dev in devices or []:
+        device_id = dev.get("id")
+        if device_id is None:
+            continue
+        builder.button(
+            text=f"📱 {_device_label(dev)}  ✖",
+            callback_data=f"dsc_hwid:{sub_id}:{device_id}",
+        )
+    builder.button(text="🗑 Очистить все устройства", callback_data=f"clr_hwid:{sub_id}")
+    builder.button(text="📊 Изменить лимит", callback_data=f"edit_dev_upgrade:{sub_id}")
     builder.button(text="◀ Назад", callback_data="my_subs")
     builder.adjust(1)
     return builder.as_markup()

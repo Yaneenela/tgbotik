@@ -16,6 +16,7 @@ from bot.db import Database, utc_now
 from bot.xui import XUIManager
 from bot.payments import Platega, CryptoBot
 from bot.keyboards import main_menu, back_button, about_keyboard, plans_keyboard, payment_methods_keyboard, admin_menu, admin_subs_list_keyboard, admin_sub_actions_keyboard, device_count_keyboard, device_mgmt_keyboard, help_keyboard
+from bot import keyboards as keyboards_mod
 
 logger = logging.getLogger(__name__)
 
@@ -325,24 +326,38 @@ async def sync_subscriptions(cfg: Config, db: Database, xui: XUIManager):
 
         inbounds = await xui.get_inbounds()
         uuids_in_3xui = set()
+        clients_by_uuid = {}
         for ib in inbounds:
             for c in (ib.settings.clients or []):
                 if c.id:
                     uuids_in_3xui.add(str(c.id))
+                    clients_by_uuid[str(c.id)] = c
 
         if not uuids_in_3xui:
             logger.warning("Sync skipped: 3x-ui returned no clients — possible panel outage")
             return
 
         deactivated = 0
+        migrated = 0
         for sub in subs:
             if sub["uuid"] not in uuids_in_3xui:
                 await db.deactivate_sub(sub["id"])
                 deactivated += 1
                 logger.info(f"Synced: deactivated sub #{sub['id']} (not found in 3x-ui)")
+                continue
+            client = clients_by_uuid[sub["uuid"]]
+            if client.limit_ip not in (None, 0):
+                try:
+                    await xui.apply_device_limit(sub["uuid"], sub.get("device_count", 3))
+                    migrated += 1
+                    logger.info(f"Synced: migrated sub #{sub['id']} to HWID limit {sub.get('device_count', 3)}")
+                except Exception as e:
+                    logger.warning(f"Sync: HWID migration failed for sub #{sub['id']}: {e}")
 
         if deactivated:
             logger.info(f"Sync complete: {deactivated} subscriptions deactivated")
+        if migrated:
+            logger.info(f"Sync complete: {migrated} subscriptions migrated to HWID limits")
     except Exception as e:
         logger.error(f"Sync error: {e}")
 
@@ -951,19 +966,20 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         current = sub.get("device_count", 3)
         email = sub.get("email") or f"tg_{callback.from_user.id}"
-        ips = await xui.get_client_ips(email)
+        devices = await xui.get_client_hwids(email)
         text = (
             f"💡 {sub['plan_name']}\n"
             f"📱 Лимит устройств: {current}\n"
-            f"🔌 Подключено: {len(ips)}/{current}\n"
+            f"🖥 Подключено устройств: {len(devices)}/{current}\n\n"
+            f"Нажмите ✖ рядом с устройством, чтобы отключить его."
         )
-        await _nav(callback, text, device_mgmt_keyboard(sub_id, current, ips))
+        await _nav(callback, text, device_mgmt_keyboard(sub_id, current, devices))
 
-    @router.callback_query(F.data.startswith("dsc_ip:"))
-    async def cb_disconnect_ip(callback: CallbackQuery):
+    @router.callback_query(F.data.startswith("dsc_hwid:"))
+    async def cb_disconnect_hwid(callback: CallbackQuery):
         parts = callback.data.split(":")
         sub_id = int(parts[1])
-        ip_idx = int(parts[2])
+        device_id = parts[2]
         sub = await db.get_subscription(sub_id)
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
@@ -973,23 +989,22 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             await callback.answer("Это не ваша подписка.", show_alert=True)
             return
         email = sub.get("email") or f"tg_{callback.from_user.id}"
-        ips = await xui.get_client_ips(email)
-        if ip_idx >= len(ips):
-            await callback.answer("IP уже не активен.", show_alert=True)
-            return
-        target_ip = ips[ip_idx]
+        devices = await xui.get_client_hwids(email)
+        label = keyboards_mod._device_label(next((d for d in devices if str(d.get("id")) == str(device_id)), {}))
         await _nav(callback,
-            f"🔌 Отключить устройство {target_ip}?\n\n"
-            f"⚠️ Все активные подключения будут сброшены.",
+            f"📱 Отключить устройство «{label}»?\n\n"
+            f"Оно больше не сможет использовать подписку.",
             InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Да, отключить", callback_data=f"dsc_ip_ok:{sub_id}")],
+                [InlineKeyboardButton(text="✅ Да, отключить", callback_data=f"dsc_hwid_ok:{sub_id}:{device_id}")],
                 [InlineKeyboardButton(text="◀ Нет", callback_data=f"edit_dev_sub:{sub_id}")],
             ]),
         )
 
-    @router.callback_query(F.data.startswith("dsc_ip_ok:"))
-    async def cb_disconnect_ip_ok(callback: CallbackQuery):
-        sub_id = int(callback.data.split(":")[1])
+    @router.callback_query(F.data.startswith("dsc_hwid_ok:"))
+    async def cb_disconnect_hwid_ok(callback: CallbackQuery):
+        parts = callback.data.split(":")
+        sub_id = int(parts[1])
+        device_id = parts[2]
         sub = await db.get_subscription(sub_id)
         if not sub:
             await _nav(callback, "Подписка не найдена.", back_button())
@@ -1000,16 +1015,62 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         email = sub.get("email") or f"tg_{callback.from_user.id}"
         try:
-            await xui.reset_client_ips(email)
-        except Exception as e:
-            await _nav(callback, f"Ошибка: {e}", back_button())
+            hwid_id = int(device_id)
+        except (TypeError, ValueError):
+            await _nav(callback, "Не удалось отключить устройство. Попробуйте ещё раз.", back_button())
+            return
+        if not await xui.delete_client_hwid(email, hwid_id):
+            await _nav(callback, "Не удалось отключить устройство. Попробуйте ещё раз.", back_button())
             return
         current = sub.get("device_count", 3)
-        ips = await xui.get_client_ips(email)
+        devices = await xui.get_client_hwids(email)
         await _nav(callback,
-            f"🔌 Устройство отключено.\n"
-            f"Подключений сейчас: {len(ips)}/{current}",
-            device_mgmt_keyboard(sub_id, current, ips),
+            f"📱 Устройство отключено.\n"
+            f"Подключено устройств: {len(devices)}/{current}",
+            device_mgmt_keyboard(sub_id, current, devices),
+        )
+
+    @router.callback_query(F.data.startswith("clr_hwid:"))
+    async def cb_clear_hwids(callback: CallbackQuery):
+        sub_id = int(callback.data.split(":")[1])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await _nav(callback, "Подписка не найдена.", back_button())
+            return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
+            return
+        await _nav(callback,
+            "🗑 Отключить ВСЕ устройства?\n\n"
+            "Каждое устройство сможет подключиться заново.",
+            InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Да, все", callback_data=f"clr_hwid_ok:{sub_id}")],
+                [InlineKeyboardButton(text="◀ Нет", callback_data=f"edit_dev_sub:{sub_id}")],
+            ]),
+        )
+
+    @router.callback_query(F.data.startswith("clr_hwid_ok:"))
+    async def cb_clear_hwids_ok(callback: CallbackQuery):
+        sub_id = int(callback.data.split(":")[1])
+        sub = await db.get_subscription(sub_id)
+        if not sub:
+            await _nav(callback, "Подписка не найдена.", back_button())
+            return
+        user = await db.get_user(callback.from_user.id)
+        if not user or sub["user_id"] != user["id"]:
+            await callback.answer("Это не ваша подписка.", show_alert=True)
+            return
+        email = sub.get("email") or f"tg_{callback.from_user.id}"
+        if not await xui.clear_client_hwids(email):
+            await _nav(callback, "Не удалось отключить устройства. Попробуйте ещё раз.", back_button())
+            return
+        current = sub.get("device_count", 3)
+        devices = await xui.get_client_hwids(email)
+        await _nav(callback,
+            f"🗑 Все устройства отключены.\n"
+            f"Подключено устройств: {len(devices)}/{current}",
+            device_mgmt_keyboard(sub_id, current, devices),
         )
 
     @router.callback_query(F.data.startswith("edit_dev_upgrade:"))
@@ -1524,7 +1585,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             cursor = await db.conn.execute("SELECT telegram_id FROM users WHERE id = ?", (sub["user_id"],))
             user_row = await cursor.fetchone()
             email = sub.get("email") or (f"tg_{user_row['telegram_id']}" if user_row else f"tg_{sub['user_id']}")
-            await xui.update_client_expiry(sub["uuid"], email, days + remaining_days)
+            await xui.update_client_expiry(sub["uuid"], email, days + remaining_days, sub.get("device_count", 3))
         except Exception as e:
             await message.answer(f"Ошибка 3x-UI: {e}")
             await state.clear()
