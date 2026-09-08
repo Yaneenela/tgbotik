@@ -145,16 +145,22 @@ class CryptoBot:
         now = time.time()
         if self._rate_cache and now - self._rate_cache[1] < 300:
             return self._rate_cache[0]
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": "tether", "vs_currencies": "rub"},
-                timeout=10,
-            )
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://api.coingecko.com/api/v3/simple/price",
+                    params={"ids": "tether", "vs_currencies": "rub"},
+                    timeout=10,
+                )
+                data = resp.json()
             rate = float(data["tether"]["rub"])
-            self._rate_cache = (rate, now)
-            return rate
+        except Exception as e:
+            logger.error(f"CoinGecko rate error: {e}")
+            if self._rate_cache:
+                return self._rate_cache[0]
+            return 0.0
+        self._rate_cache = (rate, now)
+        return rate
 
     async def create_invoice(
         self, amount: float, description: str = ""

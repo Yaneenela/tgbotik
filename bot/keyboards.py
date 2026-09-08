@@ -1,6 +1,8 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bot.config import DEFAULT_DEVICE_COUNT
+
 
 PAYMENT_METHOD_LABELS = {
     2: "⚡ СБП",
@@ -69,7 +71,7 @@ def plans_keyboard(plans: list, prefix: str = "plan") -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def device_count_keyboard(current: int = 3, prefix: str = "device", back_cb: str = "buy", confirm_cb: str = None) -> InlineKeyboardMarkup:
+def device_count_keyboard(current: int = DEFAULT_DEVICE_COUNT, prefix: str = "device", back_cb: str = "buy", confirm_cb: str = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     start = 3 if confirm_cb else 1
     for i in range(start, 11):
@@ -95,7 +97,7 @@ def _device_label(dev: dict) -> str:
     return label or "Неизвестное устройство"
 
 
-def device_mgmt_keyboard(sub_id: int, current: int = 3, devices: list[dict] = None) -> InlineKeyboardMarkup:
+def device_mgmt_keyboard(sub_id: int, current: int = DEFAULT_DEVICE_COUNT, devices: list[dict] = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for dev in devices or []:
         device_id = dev.get("id")

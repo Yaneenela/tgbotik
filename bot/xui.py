@@ -7,6 +7,8 @@ import requests
 from py3xui import Api, Client, Inbound
 from pydantic import ConfigDict, Field
 
+from bot.config import DEFAULT_DEVICE_COUNT
+
 
 class XUIClient(Client):
     """Client model with 3x-UI v3.7.0 `limitHwid` (per-subscription HWID device limit).
@@ -52,7 +54,7 @@ class XUIManager:
         return None
 
     async def create_client(
-        self, inbound_ids: list[int], email: str, days: int, traffic_gb: int = 0, device_count: int = 3
+        self, inbound_ids: list[int], email: str, days: int, traffic_gb: int = 0, device_count: int = DEFAULT_DEVICE_COUNT
     ) -> tuple[str, Client]:
         client_uuid = str(uuid_lib.uuid4())
         expiry = int((datetime.now(timezone.utc) + timedelta(days=days)).timestamp() * 1000)
@@ -84,7 +86,7 @@ class XUIManager:
                 pass
 
     async def update_client_expiry(
-        self, client_uuid: str, email: str, additional_days: int, device_count: int = 3
+        self, client_uuid: str, email: str, additional_days: int, device_count: int = DEFAULT_DEVICE_COUNT
     ):
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         new_expiry = now_ms + additional_days * 86400000

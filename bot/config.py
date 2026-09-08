@@ -2,6 +2,8 @@ import os
 import json
 from dataclasses import dataclass, field
 
+DEFAULT_DEVICE_COUNT = 3
+
 
 @dataclass
 class Plan:

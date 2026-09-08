@@ -1,9 +1,15 @@
 import aiosqlite
+import sqlite3
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from bot.config import DEFAULT_DEVICE_COUNT
+
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
+
+logger = logging.getLogger(__name__)
 
 
 def utc_now() -> datetime:
@@ -24,6 +30,17 @@ class Database:
 
     async def close(self):
         await self.conn.close()
+
+    async def _add_column_if_missing(self, ddl: str):
+        try:
+            await self.conn.execute(ddl)
+            await self.conn.commit()
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+        except Exception as e:
+            logger.exception(f"Migration failed: {ddl} -> {e}")
+            raise
 
     async def _migrate(self):
         await self.conn.executescript("""
@@ -60,31 +77,14 @@ class Database:
             );
         """)
         await self.conn.commit()
-        try:
-            await self.conn.execute("ALTER TABLE subscriptions ADD COLUMN reminded_at TIMESTAMP")
-            await self.conn.commit()
-        except Exception:
-            pass
-        try:
-            await self.conn.execute("ALTER TABLE subscriptions ADD COLUMN device_count INTEGER DEFAULT 3")
-            await self.conn.commit()
-        except Exception:
-            pass
-        try:
-            await self.conn.execute("ALTER TABLE subscriptions ADD COLUMN email TEXT")
-            await self.conn.commit()
-        except Exception:
-            pass
-        try:
-            await self.conn.execute("ALTER TABLE transactions ADD COLUMN renew_sub_id INTEGER")
-            await self.conn.commit()
-        except Exception:
-            pass
-        try:
-            await self.conn.execute("ALTER TABLE transactions ADD COLUMN device_count INTEGER DEFAULT 3")
-            await self.conn.commit()
-        except Exception:
-            pass
+        for ddl in (
+            "ALTER TABLE subscriptions ADD COLUMN reminded_at TIMESTAMP",
+            "ALTER TABLE subscriptions ADD COLUMN device_count INTEGER DEFAULT 3",
+            "ALTER TABLE subscriptions ADD COLUMN email TEXT",
+            "ALTER TABLE transactions ADD COLUMN renew_sub_id INTEGER",
+            "ALTER TABLE transactions ADD COLUMN device_count INTEGER DEFAULT 3",
+        ):
+            await self._add_column_if_missing(ddl)
         try:
             await self.conn.execute(
                 "UPDATE subscriptions SET email = 'tg_' || "
@@ -92,8 +92,8 @@ class Database:
                 "WHERE email IS NULL OR email = ''"
             )
             await self.conn.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Email backfill skipped: {e}")
 
     async def get_user(self, telegram_id: int) -> Optional[dict]:
         cursor = await self.conn.execute(
@@ -119,7 +119,7 @@ class Database:
         inbound_id: int,
         days: int,
         traffic_gb: int,
-        device_count: int = 3,
+        device_count: int = DEFAULT_DEVICE_COUNT,
         email: str = None,
     ) -> dict:
         expired_at = utc_now() + timedelta(days=days)
@@ -166,7 +166,7 @@ class Database:
         plan_name: str = None,
         status: str = "pending",
         renew_sub_id: int = None,
-        device_count: int = 3,
+        device_count: int = DEFAULT_DEVICE_COUNT,
     ):
         await self.conn.execute(
             """INSERT INTO transactions

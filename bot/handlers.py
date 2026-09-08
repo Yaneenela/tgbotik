@@ -11,7 +11,7 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from bot.config import Config, Plan
+from bot.config import Config, Plan, DEFAULT_DEVICE_COUNT
 from bot.db import Database, utc_now
 from bot.xui import XUIManager
 from bot.payments import Platega, CryptoBot
@@ -51,7 +51,7 @@ def calc_total_price(plan: Plan, device_count: int) -> float:
 
 async def _process_payment(
     cfg: Config, db: Database, xui: XUIManager, bot: Bot,
-    tg_id: int, plan: Plan, payment_id: str, device_count: int = 3,
+    tg_id: int, plan: Plan, payment_id: str, device_count: int = DEFAULT_DEVICE_COUNT,
     renew_sub_id: Optional[int] = None,
 ):
     user = await db.get_user(tg_id)
@@ -220,7 +220,7 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
                                 sub_id = int(row["plan_name"].split("_", 1)[1])
                                 sub = await db.get_subscription(sub_id)
                                 if sub and sub["user_id"] == row["user_id"]:
-                                    new_count = row.get("device_count", 3) or 3
+                                    new_count = row.get("device_count", DEFAULT_DEVICE_COUNT) or DEFAULT_DEVICE_COUNT
                                     remaining_days = 0
                                     if sub.get("expired_at"):
                                         try:
@@ -237,7 +237,7 @@ async def check_pending_payments(cfg: Config, db: Database, xui: XUIManager, bot
                                 if plan:
                                     ok = await _process_payment(
                                         cfg, db, xui, bot, row["telegram_id"], plan, row["payment_id"],
-                                        device_count=row.get("device_count", 3) or 3,
+                                        device_count=row.get("device_count", DEFAULT_DEVICE_COUNT) or DEFAULT_DEVICE_COUNT,
                                         renew_sub_id=row.get("renew_sub_id"),
                                     )
                         except Exception as e:
@@ -348,9 +348,9 @@ async def sync_subscriptions(cfg: Config, db: Database, xui: XUIManager):
             client = clients_by_uuid[sub["uuid"]]
             if client.limit_ip not in (None, 0):
                 try:
-                    await xui.apply_device_limit(sub["uuid"], sub.get("device_count", 3))
+                    await xui.apply_device_limit(sub["uuid"], sub.get("device_count", DEFAULT_DEVICE_COUNT))
                     migrated += 1
-                    logger.info(f"Synced: migrated sub #{sub['id']} to HWID limit {sub.get('device_count', 3)}")
+                    logger.info(f"Synced: migrated sub #{sub['id']} to HWID limit {sub.get('device_count', DEFAULT_DEVICE_COUNT)}")
                 except Exception as e:
                     logger.warning(f"Sync: HWID migration failed for sub #{sub['id']}: {e}")
 
@@ -376,7 +376,8 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     crypto = CryptoBot(cfg.crypto_bot_token) if cfg.crypto_bot_token else None
 
     @router.message(Command("start"))
-    async def cmd_start(message: Message):
+    async def cmd_start(message: Message, state: FSMContext):
+        await state.clear()
         tg_id = message.from_user.id
         user = await db.create_user(tg_id, message.from_user.username)
 
@@ -499,7 +500,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             await _nav(callback, "Тарифы изменились. Откройте список заново.", back_button("buy"))
             return
         plan = cfg.plans[idx]
-        await state.update_data(plan_index=idx, renew_sub_id=None, device_count=3)
+        await state.update_data(plan_index=idx, renew_sub_id=None, device_count=DEFAULT_DEVICE_COUNT)
 
         text = (
             f"💡 Тариф: {plan.days} дней | Безлимит\n"
@@ -557,7 +558,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_pay_platega(callback: CallbackQuery, state: FSMContext, bot: Bot):
         data = await state.get_data()
         idx = data.get("plan_index")
-        device_count = data.get("device_count", 3)
+        device_count = data.get("device_count", DEFAULT_DEVICE_COUNT)
         if idx is None:
             await _nav(callback, "Ошибка: выберите тариф заново.", back_button())
             return
@@ -633,7 +634,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
     async def cb_pay_crypto(callback: CallbackQuery, state: FSMContext, bot: Bot):
         data = await state.get_data()
         idx = data.get("plan_index")
-        device_count = data.get("device_count", 3)
+        device_count = data.get("device_count", DEFAULT_DEVICE_COUNT)
         if idx is None:
             await _nav(callback, "Ошибка: выберите тариф заново.", back_button())
             return
@@ -755,7 +756,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
                 paid = True
 
         data = await state.get_data()
-        device_count = own.get("device_count", 3) or 3
+        device_count = own.get("device_count", DEFAULT_DEVICE_COUNT) or DEFAULT_DEVICE_COUNT
         renew_sub_id = own.get("renew_sub_id") or data.get("renew_sub_id")
 
         if paid:
@@ -827,7 +828,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if renew_sub_id:
             rsub = await db.get_subscription(int(renew_sub_id))
             if rsub:
-                device_default = rsub.get("device_count", 3) or 3
+                device_default = rsub.get("device_count", DEFAULT_DEVICE_COUNT) or DEFAULT_DEVICE_COUNT
         plan = cfg.plans[idx]
         await state.update_data(plan_index=idx, device_count=device_default)
         text = (
@@ -875,7 +876,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             days_left = max(0, (expired - utc_now()).days) if expired else None
             days_txt = f" (осталось {days_left} дн.)" if expired and days_left else ""
             sub_url = cfg.make_sub_url(s["uuid"])
-            devices = s.get("device_count", 3)
+            devices = s.get("device_count", DEFAULT_DEVICE_COUNT)
             status = "✅ Активна" if s["is_active"] else "⚠️ Истекла"
             text_parts.append(
                 f"\n▶ {s['plan_name']} — {status}\n"
@@ -947,7 +948,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             return
         builder = InlineKeyboardBuilder()
         for s in subs:
-            label = f"{s['plan_name']} — {s.get('device_count', 3)} шт"
+            label = f"{s['plan_name']} — {s.get('device_count', DEFAULT_DEVICE_COUNT)} шт"
             builder.button(text=label, callback_data=f"edit_dev_sub:{s['id']}")
         builder.button(text="◀ Назад", callback_data="my_subs")
         builder.adjust(1)
@@ -964,7 +965,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not user or sub["user_id"] != user["id"]:
             await callback.answer("Это не ваша подписка.", show_alert=True)
             return
-        current = sub.get("device_count", 3)
+        current = sub.get("device_count", DEFAULT_DEVICE_COUNT)
         email = sub.get("email") or f"tg_{callback.from_user.id}"
         devices = await xui.get_client_hwids(email)
         text = (
@@ -1022,7 +1023,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not await xui.delete_client_hwid(email, hwid_id):
             await _nav(callback, "Не удалось отключить устройство. Попробуйте ещё раз.", back_button())
             return
-        current = sub.get("device_count", 3)
+        current = sub.get("device_count", DEFAULT_DEVICE_COUNT)
         devices = await xui.get_client_hwids(email)
         await _nav(callback,
             f"📱 Устройство отключено.\n"
@@ -1065,7 +1066,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not await xui.clear_client_hwids(email):
             await _nav(callback, "Не удалось отключить устройства. Попробуйте ещё раз.", back_button())
             return
-        current = sub.get("device_count", 3)
+        current = sub.get("device_count", DEFAULT_DEVICE_COUNT)
         devices = await xui.get_client_hwids(email)
         await _nav(callback,
             f"🗑 Все устройства отключены.\n"
@@ -1084,7 +1085,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not user or sub["user_id"] != user["id"]:
             await callback.answer("Это не ваша подписка.", show_alert=True)
             return
-        current = sub.get("device_count", 3)
+        current = sub.get("device_count", DEFAULT_DEVICE_COUNT)
         text = (
             f"📱 Изменение лимита устройств\n\n"
             f"Текущий лимит: {current}\n\n"
@@ -1105,7 +1106,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         if not user or sub["user_id"] != user["id"]:
             await callback.answer("Это не ваша подписка.", show_alert=True)
             return
-        current = sub.get("device_count", 3)
+        current = sub.get("device_count", DEFAULT_DEVICE_COUNT)
         if new_count == current:
             await callback.answer("Это текущее количество.", show_alert=True)
             return
@@ -1534,7 +1535,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
         expired = datetime.fromisoformat(sub["expired_at"]) if sub.get("expired_at") else None
         expired_str = expired.strftime("%d.%m.%Y %H:%M") if expired else "?"
         sub_url = cfg.make_sub_url(sub["uuid"])
-        devices = sub.get("device_count", 3)
+        devices = sub.get("device_count", DEFAULT_DEVICE_COUNT)
         text = (
             f"👤 {user_name} (ID: {user_tg_id})\n"
             f"💡 {sub['plan_name']}\n"
@@ -1585,7 +1586,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             cursor = await db.conn.execute("SELECT telegram_id FROM users WHERE id = ?", (sub["user_id"],))
             user_row = await cursor.fetchone()
             email = sub.get("email") or (f"tg_{user_row['telegram_id']}" if user_row else f"tg_{sub['user_id']}")
-            await xui.update_client_expiry(sub["uuid"], email, days + remaining_days, sub.get("device_count", 3))
+            await xui.update_client_expiry(sub["uuid"], email, days + remaining_days, sub.get("device_count", DEFAULT_DEVICE_COUNT))
         except Exception as e:
             await message.answer(f"Ошибка 3x-UI: {e}")
             await state.clear()
@@ -1664,7 +1665,7 @@ def create_router(cfg: Config, db: Database, xui: XUIManager):
             days_left = max(0, (expired - utc_now()).days) if expired else None
             days_txt = f" (осталось {days_left} дн.)" if expired and days_left else ""
             sub_url = cfg.make_sub_url(s["uuid"])
-            devices = s.get("device_count", 3)
+            devices = s.get("device_count", DEFAULT_DEVICE_COUNT)
             await message.answer(
                 f"▶ {s['plan_name']}\n"
                 f"📅 До: {expired_str}{days_txt}\n"
